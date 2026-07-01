@@ -16,14 +16,29 @@ android {
         applicationId = "com.example.genbrush"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        val storeFile = rootProject.file("genbrush-release.jks")
+        if (storeFile.exists()) {
+            val storePassword = project.findProperty("SIGNING_STORE_PASSWORD") as String?
+                ?: throw GradleException("Keystore exists but SIGNING_STORE_PASSWORD not configured")
+            create("release") {
+                this.storeFile = storeFile
+                this.storePassword = storePassword
+                keyAlias = project.findProperty("SIGNING_KEY_ALIAS") as String? ?: "genbrush"
+                keyPassword = project.findProperty("SIGNING_KEY_PASSWORD") as String? ?: storePassword
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

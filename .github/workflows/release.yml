@@ -1,0 +1,34 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Restore keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SIGNING_KEY_STORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > genbrush-release.jks
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: app/build/outputs/apk/release/app-release.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
