@@ -22,7 +22,7 @@ jobs:
         run: echo "$KEYSTORE_BASE64" | base64 -d > genbrush-release.jks
 
       - name: Build release APK
-        run: ./gradlew assembleRelease
+        run: chmod +x gradlew && ./gradlew assembleRelease
 
       - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v1
