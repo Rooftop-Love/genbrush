@@ -49,8 +49,10 @@ class GenBrushApp : Application() {
 
         val okHttpClient = OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            // DashScope 的同步图像生成可能超过一分钟，避免被客户端提前判定为网络异常。
+            .readTimeout(300, TimeUnit.SECONDS)
+            .writeTimeout(300, TimeUnit.SECONDS)
+            .callTimeout(360, TimeUnit.SECONDS)
             .apply {
                 if (BuildConfig.DEBUG) {
                     addInterceptor(HttpLoggingInterceptor().apply {

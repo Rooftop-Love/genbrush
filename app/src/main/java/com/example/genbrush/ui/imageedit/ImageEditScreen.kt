@@ -202,7 +202,9 @@ fun ImageEditScreen(viewModel: ImageEditViewModel) {
 
             LoadingOverlay(
                 isLoading = state.isGenerating,
-                hint = if (state.isSdBackend) s.loadingHintSd else null
+                hint = if (state.isSdBackend) s.loadingHintSd else null,
+                elapsedSeconds = state.elapsedSeconds,
+                onStop = viewModel::stopGeneration
             )
 
             state.resultImageFile?.let { file ->

@@ -100,6 +100,8 @@ data class AppStrings(
     val loadingMsg: String,
     val loadingHint: String,
     val loadingHintSd: String,
+    val loadingElapsed: String,
+    val loadingStop: String,
 
     // Settings screen
     val settingsTitle: String,
@@ -278,6 +280,8 @@ data class AppStrings(
             loadingMsg = "正在生成图片...",
             loadingHint = "预计需要 10-30 秒",
             loadingHintSd = "本地 SD 生成较慢，预计需要 1-3 分钟",
+            loadingElapsed = "已用时 %s",
+            loadingStop = "停止生成",
             settingsTitle = "设置",
             settingsSaved = "设置已保存",
             settingsApiConfig = "API 配置",
@@ -438,6 +442,8 @@ data class AppStrings(
             loadingMsg = "Generating image...",
             loadingHint = "This may take 10-30 seconds",
             loadingHintSd = "Local SD generation is slower, may take 1-3 minutes",
+            loadingElapsed = "Elapsed %s",
+            loadingStop = "Stop",
             settingsTitle = "Settings",
             settingsSaved = "Settings saved",
             settingsApiConfig = "API Configuration",

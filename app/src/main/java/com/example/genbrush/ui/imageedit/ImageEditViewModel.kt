@@ -15,6 +15,9 @@ import com.example.genbrush.ui.components.getConfiguredEditModels
 import com.example.genbrush.ui.components.getSupportedSizes
 import com.example.genbrush.ui.localization.AppStrings
 import com.example.genbrush.ui.localization.resolveAppStrings
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,7 +39,8 @@ data class ImageEditState(
     val availableModels: List<String> = emptyList(),
     val availableLoras: List<SdLoraInfo> = emptyList(),
     val selectedLoras: Map<String, Float> = emptyMap(),
-    val availableSizes: List<SizeOption> = emptyList()
+    val availableSizes: List<SizeOption> = emptyList(),
+    val elapsedSeconds: Long = 0L
 )
 
 class ImageEditViewModel(
@@ -47,6 +51,8 @@ class ImageEditViewModel(
 
     private val _state = MutableStateFlow(ImageEditState())
     val state: StateFlow<ImageEditState> = _state.asStateFlow()
+    private var generationJob: Job? = null
+    private var timerJob: Job? = null
 
     init {
         val isSd = prefs.backend == PreferencesManager.BACKEND_SD_WEBUI
@@ -174,6 +180,7 @@ class ImageEditViewModel(
 
     fun generate(context: Context) {
         val currentState = _state.value
+        if (currentState.isGenerating) return
         val s = resolveAppStrings(prefs.language)
         if (currentState.sourceImageUri == null) {
             _state.update { it.copy(error = s.errSelectImage) }
@@ -184,7 +191,15 @@ class ImageEditViewModel(
             return
         }
 
-        _state.update { it.copy(isGenerating = true, error = null, resultImageFile = null) }
+        _state.update {
+            it.copy(
+                isGenerating = true,
+                error = null,
+                resultImageFile = null,
+                elapsedSeconds = 0L
+            )
+        }
+        startTimer()
 
         // 将已选 LoRA 拼接到 prompt 末尾
         val loraSuffix = currentState.selectedLoras.entries.joinToString(" ") { (name, weight) ->
@@ -196,35 +211,47 @@ class ImageEditViewModel(
             currentState.prompt
         }
 
-        viewModelScope.launch {
-            val result = repository.generateImageEdit(
-                imageUri = currentState.sourceImageUri,
-                prompt = finalPrompt,
-                model = currentState.selectedModel,
-                size = currentState.selectedSize,
-                context = context
-            )
-            result.fold(
-                onSuccess = { entry ->
-                    _state.update {
-                        it.copy(
-                            isGenerating = false,
-                            resultImageFile = repository.getLocalImagePath(entry),
-                            resultPrompt = entry.prompt,
-                            resultModel = entry.model
-                        )
+        generationJob = viewModelScope.launch {
+            try {
+                val result = repository.generateImageEdit(
+                    imageUri = currentState.sourceImageUri,
+                    prompt = finalPrompt,
+                    model = currentState.selectedModel,
+                    size = currentState.selectedSize,
+                    context = context
+                )
+                result.fold(
+                    onSuccess = { entry ->
+                        _state.update {
+                            it.copy(
+                                isGenerating = false,
+                                resultImageFile = repository.getLocalImagePath(entry),
+                                resultPrompt = entry.prompt,
+                                resultModel = entry.model
+                            )
+                        }
+                    },
+                    onFailure = { e ->
+                        if (e is CancellationException) throw e
+                        _state.update {
+                            it.copy(
+                                isGenerating = false,
+                                error = mapError(e, s)
+                            )
+                        }
                     }
-                },
-                onFailure = { e ->
-                    _state.update {
-                        it.copy(
-                            isGenerating = false,
-                            error = mapError(e, s)
-                        )
-                    }
-                }
-            )
+                )
+            } catch (_: CancellationException) {
+                // User stopped the generation.
+            } finally {
+                finishGeneration()
+            }
         }
+    }
+
+    fun stopGeneration() {
+        generationJob?.cancel()
+        finishGeneration()
     }
 
     fun clearResult() {
@@ -233,6 +260,37 @@ class ImageEditViewModel(
 
     fun dismissError() {
         _state.update { it.copy(error = null) }
+    }
+
+    override fun onCleared() {
+        generationJob?.cancel()
+        timerJob?.cancel()
+        super.onCleared()
+    }
+
+    private fun startTimer() {
+        timerJob?.cancel()
+        timerJob = viewModelScope.launch {
+            while (true) {
+                delay(1000)
+                _state.update { state ->
+                    if (state.isGenerating) {
+                        state.copy(elapsedSeconds = state.elapsedSeconds + 1)
+                    } else {
+                        state
+                    }
+                }
+            }
+        }
+    }
+
+    private fun finishGeneration() {
+        timerJob?.cancel()
+        timerJob = null
+        generationJob = null
+        _state.update { state ->
+            if (state.isGenerating) state.copy(isGenerating = false) else state
+        }
     }
 
     companion object {

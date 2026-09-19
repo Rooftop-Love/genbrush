@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import com.example.genbrush.data.local.db.AppDatabase
 import com.example.genbrush.data.local.db.ImageDao
 import com.example.genbrush.data.local.db.ImageEntity
+import com.example.genbrush.data.network.executeCancellable
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +42,8 @@ class ImageStore(private val context: Context) {
     private val gson = Gson()
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(300, TimeUnit.SECONDS)
+        .callTimeout(300, TimeUnit.SECONDS)
         .build()
     private val imageDir: File
         get() = File(context.filesDir, "generated_images").also { it.mkdirs() }
@@ -92,7 +94,7 @@ class ImageStore(private val context: Context) {
     suspend fun saveImageFromUrl(url: String, entry: ImageEntry): ImageEntry = withContext(Dispatchers.IO) {
         ensureMigrated()
         val request = Request.Builder().url(url).build()
-        val response = okHttpClient.newCall(request).execute()
+        val response = okHttpClient.executeCancellable(request)
         if (!response.isSuccessful) {
             throw Exception("下载图片失败: HTTP ${response.code}")
         }

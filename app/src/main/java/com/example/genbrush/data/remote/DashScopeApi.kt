@@ -1,11 +1,13 @@
 ﻿package com.example.genbrush.data.remote
 
+import com.example.genbrush.data.network.executeCancellable
 import com.example.genbrush.data.remote.model.GenerationRequest
 import com.example.genbrush.data.remote.model.GenerationResponse
 import com.example.genbrush.data.remote.model.TaskStatusResponse
 import com.example.genbrush.data.remote.model.TaskSubmitRequest
 import com.example.genbrush.data.remote.model.TaskSubmitResponse
 import com.google.gson.Gson
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -31,7 +33,7 @@ class DashScopeApi(
                 .addHeader("Content-Type", "application/json")
                 .build()
 
-            val response = client.newCall(httpRequest).execute()
+            val response = client.executeCancellable(httpRequest)
             val body = response.body?.string() ?: return@withContext Result.failure(
                 Exception("响应内容为空")
             )
@@ -40,7 +42,9 @@ class DashScopeApi(
                 val errorResponse = try {
                     gson.fromJson(body, GenerationResponse::class.java)
                 } catch (_: Exception) { null }
-                val errorMsg = errorResponse?.message ?: "HTTP ${response.code}"
+                val errorMsg = errorResponse?.message
+                    ?: body.takeIf { it.isNotBlank() }?.take(500)
+                    ?: "HTTP ${response.code}"
                 val errorCode = errorResponse?.code ?: "HTTP_${response.code}"
                 return@withContext Result.failure(
                     DashScopeException(errorCode, errorMsg)
@@ -64,6 +68,8 @@ class DashScopeApi(
             }
 
             Result.success(generationResponse)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -83,7 +89,7 @@ class DashScopeApi(
                 .addHeader("X-DashScope-Async", "enable")
                 .build()
 
-            val response = client.newCall(httpRequest).execute()
+            val response = client.executeCancellable(httpRequest)
             val body = response.body?.string() ?: return@withContext Result.failure(
                 Exception("响应内容为空")
             )
@@ -115,6 +121,8 @@ class DashScopeApi(
             }
 
             Result.success(submitResponse)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -138,7 +146,7 @@ class DashScopeApi(
                     .addHeader("Authorization", "Bearer $apiKey")
                     .build()
 
-                val response = client.newCall(httpRequest).execute()
+                val response = client.executeCancellable(httpRequest)
                 val body = response.body?.string() ?: continue
 
                 if (!response.isSuccessful) continue
@@ -161,6 +169,8 @@ class DashScopeApi(
             }
 
             Result.failure(Exception("任务超时，请稍后重试"))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

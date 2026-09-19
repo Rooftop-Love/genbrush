@@ -14,6 +14,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -26,7 +27,9 @@ import com.example.genbrush.ui.localization.LocalStrings
 fun LoadingOverlay(
     isLoading: Boolean,
     modifier: Modifier = Modifier,
-    hint: String? = null
+    hint: String? = null,
+    elapsedSeconds: Long? = null,
+    onStop: (() -> Unit)? = null
 ) {
     val s = LocalStrings.current
     AnimatedVisibility(
@@ -68,7 +71,28 @@ fun LoadingOverlay(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
+                elapsedSeconds?.let { seconds ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = s.loadingElapsed.format(formatElapsed(seconds)),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                onStop?.let { stop ->
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedButton(onClick = stop) {
+                        Text(s.loadingStop)
+                    }
+                }
             }
         }
     }
+}
+
+private fun formatElapsed(seconds: Long): String {
+    val minutes = seconds / 60
+    val remainingSeconds = seconds % 60
+    return "${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}"
 }
