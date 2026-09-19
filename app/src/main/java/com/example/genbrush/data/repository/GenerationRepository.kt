@@ -19,6 +19,7 @@ import com.example.genbrush.data.remote.model.SdTxt2ImgRequest
 import com.example.genbrush.data.remote.model.TaskInput
 import com.example.genbrush.data.remote.model.TaskParameters
 import com.example.genbrush.data.remote.model.TaskSubmitRequest
+import com.example.genbrush.data.remote.model.isQwenImage3Model
 import com.example.genbrush.data.remote.model.isWanModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -185,6 +186,7 @@ class GenerationRepository(
                 n = 1,
                 negative_prompt = negativePrompt.ifBlank { null },
                 prompt_extend = true,
+                prompt_extend_mode = if (isQwenImage3Model(model)) "direct" else null,
                 watermark = false
             )
         )
@@ -221,8 +223,19 @@ class GenerationRepository(
     ): Result<ImageEntry> {
         val request = TaskSubmitRequest(
             model = model,
-            input = TaskInput(prompt = prompt),
-            parameters = TaskParameters(size = size, n = 1)
+            input = TaskInput(
+                messages = listOf(
+                    Message(
+                        role = "user",
+                        content = listOf(ContentItem(text = prompt))
+                    )
+                )
+            ),
+            parameters = TaskParameters(
+                size = size,
+                n = 1,
+                watermark = false
+            )
         )
 
         val submitResult = dashScopeApi.submitAsyncTask(apiKey, request)
@@ -235,7 +248,13 @@ class GenerationRepository(
         return statusResult.fold(
             onSuccess = { statusResponse ->
                 try {
-                    val imageUrl = statusResponse.output?.results?.firstOrNull()?.url
+                    val imageUrl = statusResponse.output?.choices
+                        ?.firstOrNull()
+                        ?.message
+                        ?.content
+                        ?.firstOrNull()
+                        ?.image
+                        ?: statusResponse.output?.results?.firstOrNull()?.url
                         ?: throw Exception("响应中未包含图片")
                     val fileName = ImageStore.createFileName("text_to_image")
                     val entry = ImageEntry(
@@ -280,6 +299,7 @@ class GenerationRepository(
                 size = size,
                 n = 1,
                 prompt_extend = true,
+                prompt_extend_mode = if (isQwenImage3Model(model)) "direct" else null,
                 watermark = false
             )
         )

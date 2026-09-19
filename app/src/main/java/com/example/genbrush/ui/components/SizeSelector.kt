@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.example.genbrush.data.remote.model.isQwenImage3Model
 import com.example.genbrush.data.remote.model.isWanModel
 
 data class SizeOption(val value: String, val label: String)
@@ -34,6 +35,18 @@ val SD_SIZE_OPTIONS = listOf(
  * 总像素需在 512*512 ~ 2048*2048 之间，以下为官方推荐分辨率
  */
 val QWEN_IMAGE_2_0_SIZES = listOf(
+    SizeOption("2048*2048", "2048x2048 (1:1)"),
+    SizeOption("2688*1536", "2688x1536 (16:9)"),
+    SizeOption("1536*2688", "1536x2688 (9:16)"),
+    SizeOption("2368*1728", "2368x1728 (4:3)"),
+    SizeOption("1728*2368", "1728x2368 (3:4)")
+)
+
+/**
+ * qwen-image-3.0-pro supports arbitrary sizes within the documented pixel-area
+ * and aspect-ratio limits. These common presets also satisfy those limits.
+ */
+val QWEN_IMAGE_3_0_SIZES = listOf(
     SizeOption("2048*2048", "2048x2048 (1:1)"),
     SizeOption("2688*1536", "2688x1536 (16:9)"),
     SizeOption("1536*2688", "1536x2688 (9:16)"),
@@ -87,6 +100,7 @@ fun getSupportedSizes(model: String?, isSdBackend: Boolean): List<SizeOption> {
     if (model.isNullOrBlank()) return QWEN_IMAGE_2_0_SIZES
 
     return when {
+        isQwenImage3Model(model) -> QWEN_IMAGE_3_0_SIZES
         isQwenImage2Model(model) -> QWEN_IMAGE_2_0_SIZES
         isQwenImageMaxOrPlusModel(model) -> QWEN_IMAGE_MAX_SIZES
         isWanModel(model) -> WAN27_IMAGE_SIZES

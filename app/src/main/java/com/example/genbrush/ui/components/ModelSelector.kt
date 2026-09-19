@@ -18,6 +18,8 @@ import com.example.genbrush.data.local.PreferencesManager
 
 /** 所有预置的生成模型（完整列表，供设置页勾选使用） */
 val PRESET_GENERATION_MODELS = listOf(
+    "qwen-image-3.0-pro",
+    "qwen-image-2.0-pro-2026-06-22",
     "qwen-image-2.0-pro-2026-04-22",
     "qwen-image-2.0-pro",
     "qwen-image-2.0",
@@ -29,6 +31,8 @@ val PRESET_GENERATION_MODELS = listOf(
 
 /** 所有预置的编辑模型（完整列表，供设置页勾选使用） */
 val PRESET_EDIT_MODELS = listOf(
+    "qwen-image-3.0-pro",
+    "qwen-image-2.0-pro-2026-06-22",
     "qwen-image-2.0-pro-2026-04-22",
     "qwen-image-edit-max",
     "qwen-image-edit-plus",
