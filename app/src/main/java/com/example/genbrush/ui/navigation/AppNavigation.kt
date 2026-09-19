@@ -21,7 +21,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.genbrush.data.local.ImageEntry
 import com.example.genbrush.data.local.PreferencesManager
-import com.example.genbrush.data.remote.StableDiffusionApi
+import com.example.genbrush.data.provider.ProviderRegistry
 import com.example.genbrush.data.repository.GenerationRepository
 import com.example.genbrush.ui.gallery.FullImageViewerScreen
 import com.example.genbrush.ui.gallery.GalleryScreen
@@ -39,7 +39,7 @@ import com.example.genbrush.ui.texttoimage.TextToImageViewModel
 fun AppNavigation(
     prefs: PreferencesManager,
     repository: GenerationRepository,
-    sdApi: StableDiffusionApi,
+    registry: ProviderRegistry,
     language: String,
     onLanguageChange: (String) -> Unit
 ) {
@@ -87,14 +87,14 @@ fun AppNavigation(
             ) {
                 composable(Screen.TextToImage.route) {
                     val vm: TextToImageViewModel = viewModel(
-                        factory = TextToImageViewModel.factory(repository, prefs, sdApi)
+                        factory = TextToImageViewModel.factory(repository, prefs, registry)
                     )
                     TextToImageScreen(vm)
                 }
 
                 composable(Screen.ImageEdit.route) {
                     val vm: ImageEditViewModel = viewModel(
-                        factory = ImageEditViewModel.factory(repository, prefs, sdApi)
+                        factory = ImageEditViewModel.factory(repository, prefs, registry)
                     )
                     ImageEditScreen(vm)
                 }
@@ -113,7 +113,7 @@ fun AppNavigation(
 
                 composable(Screen.Settings.route) {
                     val vm: SettingsViewModel = viewModel(
-                        factory = SettingsViewModel.factory(prefs, sdApi)
+                        factory = SettingsViewModel.factory(prefs, registry)
                     )
                     SettingsScreen(viewModel = vm, onLanguageChange = onLanguageChange)
                 }

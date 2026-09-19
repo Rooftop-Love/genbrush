@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import com.example.genbrush.ui.components.ErrorResultCard
 import com.example.genbrush.ui.components.ImageResultCard
 import com.example.genbrush.ui.components.LoadingOverlay
-import com.example.genbrush.ui.components.LoraSelector
 import com.example.genbrush.ui.components.ModelSelector
 import com.example.genbrush.ui.components.SizeSelector
 import com.example.genbrush.ui.localization.LocalStrings
@@ -91,15 +90,6 @@ fun TextToImageScreen(viewModel: TextToImageViewModel) {
                 sizeOptions = state.availableSizes
             )
 
-            if (state.isSdBackend) {
-                LoraSelector(
-                    availableLoras = state.availableLoras,
-                    selectedLoras = state.selectedLoras,
-                    onToggleLora = viewModel::toggleLora,
-                    onWeightChange = viewModel::updateLoraWeight
-                )
-            }
-
             Button(
                 onClick = viewModel::generate,
                 enabled = !state.isGenerating && state.prompt.isNotBlank(),
@@ -110,7 +100,6 @@ fun TextToImageScreen(viewModel: TextToImageViewModel) {
 
             LoadingOverlay(
                 isLoading = state.isGenerating,
-                hint = if (state.isSdBackend) s.loadingHintSd else null,
                 elapsedSeconds = state.elapsedSeconds,
                 onStop = viewModel::stopGeneration
             )

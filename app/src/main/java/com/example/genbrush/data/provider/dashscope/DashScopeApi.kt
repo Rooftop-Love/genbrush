@@ -1,11 +1,6 @@
-﻿package com.example.genbrush.data.remote
+﻿package com.example.genbrush.data.provider.dashscope
 
 import com.example.genbrush.data.network.executeCancellable
-import com.example.genbrush.data.remote.model.GenerationRequest
-import com.example.genbrush.data.remote.model.GenerationResponse
-import com.example.genbrush.data.remote.model.TaskStatusResponse
-import com.example.genbrush.data.remote.model.TaskSubmitRequest
-import com.example.genbrush.data.remote.model.TaskSubmitResponse
 import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers

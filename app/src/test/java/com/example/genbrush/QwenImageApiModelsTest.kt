@@ -1,9 +1,9 @@
 package com.example.genbrush
 
-import com.example.genbrush.data.remote.model.GenerationRequest
-import com.example.genbrush.data.remote.model.Input
-import com.example.genbrush.data.remote.model.Message
-import com.example.genbrush.data.remote.model.Parameters
+import com.example.genbrush.data.provider.dashscope.GenerationRequest
+import com.example.genbrush.data.provider.dashscope.Input
+import com.example.genbrush.data.provider.dashscope.Message
+import com.example.genbrush.data.provider.dashscope.Parameters
 import com.google.gson.Gson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,7 +21,7 @@ class QwenImageApiModelsTest {
                     Message(
                         role = "user",
                         content = listOf(
-                            com.example.genbrush.data.remote.model.ContentItem(
+                            com.example.genbrush.data.provider.dashscope.ContentItem(
                                 text = "a test prompt"
                             )
                         )
@@ -67,7 +67,7 @@ class QwenImageApiModelsTest {
 
         val response = Gson().fromJson(
             json,
-            com.example.genbrush.data.remote.model.GenerationResponse::class.java
+            com.example.genbrush.data.provider.dashscope.GenerationResponse::class.java
         )
 
         assertEquals(

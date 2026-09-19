@@ -6,14 +6,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.genbrush.data.local.PreferencesManager
-import com.example.genbrush.data.remote.StableDiffusionApi
-import com.example.genbrush.data.remote.model.SdLoraInfo
+import com.example.genbrush.data.provider.ImageProvider
+import com.example.genbrush.data.provider.ProviderRegistry
+import com.example.genbrush.data.provider.SizeOption
 import com.example.genbrush.ui.common.mapError
 import com.example.genbrush.data.repository.GenerationRepository
-import com.example.genbrush.ui.components.SizeOption
-import com.example.genbrush.ui.components.getConfiguredEditModels
-import com.example.genbrush.ui.components.getSupportedSizes
-import com.example.genbrush.ui.localization.AppStrings
+import com.example.genbrush.ui.components.buildAvailableModels
 import com.example.genbrush.ui.localization.resolveAppStrings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -35,10 +33,7 @@ data class ImageEditState(
     val resultPrompt: String = "",
     val resultModel: String = "",
     val error: String? = null,
-    val isSdBackend: Boolean = false,
     val availableModels: List<String> = emptyList(),
-    val availableLoras: List<SdLoraInfo> = emptyList(),
-    val selectedLoras: Map<String, Float> = emptyMap(),
     val availableSizes: List<SizeOption> = emptyList(),
     val elapsedSeconds: Long = 0L
 )
@@ -46,7 +41,7 @@ data class ImageEditState(
 class ImageEditViewModel(
     private val repository: GenerationRepository,
     private val prefs: PreferencesManager,
-    private val sdApi: StableDiffusionApi
+    private val registry: ProviderRegistry
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ImageEditState())
@@ -55,100 +50,45 @@ class ImageEditViewModel(
     private var timerJob: Job? = null
 
     init {
-        val isSd = prefs.backend == PreferencesManager.BACKEND_SD_WEBUI
-        val models = if (!isSd) getConfiguredEditModels(prefs) else emptyList()
-        val selectedModel = models.firstOrNull() ?: ""
-        val sizes = getSupportedSizes(selectedModel, isSd)
-        val safeSize = ensureSupportedSize(prefs.defaultSize, sizes)
-        _state.update {
-            it.copy(
-                isSdBackend = isSd,
-                availableModels = models,
-                selectedModel = selectedModel,
-                selectedSize = safeSize,
-                availableSizes = sizes
-            )
-        }
-
-        if (isSd) {
-            loadSdModels()
-            loadSdLoras()
-        }
-    }
-
-    private fun loadSdModels() {
-        val serverUrl = prefs.sdServerUrl
-        if (serverUrl.isBlank()) return
-
-        viewModelScope.launch {
-            sdApi.getModels(serverUrl).onSuccess { models ->
-                val modelNames = models.map { it.model_name }
-                if (modelNames.isNotEmpty()) {
-                    val sizes = getSupportedSizes(modelNames.first(), isSdBackend = true)
-                    val safeSize = ensureSupportedSize(_state.value.selectedSize, sizes)
-                    _state.update {
-                        it.copy(
-                            availableModels = modelNames,
-                            selectedModel = modelNames.first(),
-                            availableSizes = sizes,
-                            selectedSize = safeSize
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    private fun loadSdLoras() {
-        val serverUrl = prefs.sdServerUrl
-        if (serverUrl.isBlank()) return
-
-        viewModelScope.launch {
-            sdApi.getLoras(serverUrl).onSuccess { loras ->
-                _state.update { it.copy(availableLoras = loras) }
-            }
-        }
+        refreshModels()
     }
 
     fun refreshModels() {
-        val isSd = prefs.backend == PreferencesManager.BACKEND_SD_WEBUI
-        _state.update { it.copy(isSdBackend = isSd) }
-
-        if (isSd) {
-            loadSdModels()
-            loadSdLoras()
-        } else {
-            val models = getConfiguredEditModels(prefs)
-            val selectedModel = models.firstOrNull() ?: ""
-            val sizes = getSupportedSizes(selectedModel, isSd)
-            val safeSize = ensureSupportedSize(_state.value.selectedSize, sizes)
-            _state.update {
-                it.copy(
-                    availableModels = models,
-                    selectedModel = selectedModel,
-                    availableLoras = emptyList(),
-                    selectedLoras = emptyMap(),
-                    availableSizes = sizes,
-                    selectedSize = safeSize
-                )
-            }
+        val provider = registry.resolve(prefs.providerId)
+        val models = buildAvailableModels(
+            provider.definition.presetEditModels,
+            prefs.disabledEditModels,
+            prefs.customEditModels
+        )
+        val selectedModel = models.firstOrNull() ?: ""
+        val sizes = provider.supportedSizes(selectedModel)
+        val safeSize = ensureSupportedSize(prefs.defaultSize, sizes)
+        _state.update {
+            it.copy(
+                availableModels = models,
+                selectedModel = selectedModel,
+                availableSizes = sizes,
+                selectedSize = safeSize
+            )
         }
+        maybeFetchRemoteModels(provider)
     }
 
-    fun toggleLora(name: String) {
-        _state.update { state ->
-            val newMap = if (state.selectedLoras.containsKey(name)) {
-                state.selectedLoras - name
-            } else {
-                state.selectedLoras + (name to 1.0f)
+    /** 支持在线模型列表的提供商（fetchModels 非 null）用远端列表覆盖预设列表 */
+    private fun maybeFetchRemoteModels(provider: ImageProvider) {
+        viewModelScope.launch {
+            val remote = try {
+                provider.fetchModels()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            } ?: return@launch
+            if (remote.isEmpty()) return@launch
+            _state.update { it.copy(availableModels = remote) }
+            if (_state.value.selectedModel !in remote) {
+                selectModel(remote.first())
             }
-            state.copy(selectedLoras = newMap)
-        }
-    }
-
-    fun updateLoraWeight(name: String, weight: Float) {
-        _state.update { state ->
-            state.copy(selectedLoras = state.selectedLoras + (name to weight))
         }
     }
 
@@ -161,7 +101,8 @@ class ImageEditViewModel(
     }
 
     fun selectModel(model: String) {
-        val sizes = getSupportedSizes(model, _state.value.isSdBackend)
+        val provider = registry.resolve(prefs.providerId)
+        val sizes = provider.supportedSizes(model)
         val safeSize = ensureSupportedSize(_state.value.selectedSize, sizes)
         _state.update { it.copy(selectedModel = model, availableSizes = sizes, selectedSize = safeSize) }
     }
@@ -201,21 +142,11 @@ class ImageEditViewModel(
         }
         startTimer()
 
-        // 将已选 LoRA 拼接到 prompt 末尾
-        val loraSuffix = currentState.selectedLoras.entries.joinToString(" ") { (name, weight) ->
-            "<lora:$name:${"%.1f".format(weight)}>"
-        }
-        val finalPrompt = if (loraSuffix.isNotBlank()) {
-            "${currentState.prompt} $loraSuffix"
-        } else {
-            currentState.prompt
-        }
-
         generationJob = viewModelScope.launch {
             try {
                 val result = repository.generateImageEdit(
                     imageUri = currentState.sourceImageUri,
-                    prompt = finalPrompt,
+                    prompt = currentState.prompt,
                     model = currentState.selectedModel,
                     size = currentState.selectedSize,
                     context = context
@@ -294,11 +225,11 @@ class ImageEditViewModel(
     }
 
     companion object {
-        fun factory(repository: GenerationRepository, prefs: PreferencesManager, sdApi: StableDiffusionApi) =
+        fun factory(repository: GenerationRepository, prefs: PreferencesManager, registry: ProviderRegistry) =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return ImageEditViewModel(repository, prefs, sdApi) as T
+                    return ImageEditViewModel(repository, prefs, registry) as T
                 }
             }
     }

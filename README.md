@@ -1,13 +1,12 @@
 # GenBrush
 
-AI 图像生成与编辑 Android 应用，基于 Jetpack Compose 构建，支持 DashScope（阿里云百炼）和 SD WebUI Forge 双后端。
+AI 图像生成与编辑 Android 应用，基于 Jetpack Compose 构建。采用多提供商架构，当前内置 DashScope（阿里云百炼）提供商。
 
 ## Features
 
 - **文生图** - 输入提示词生成图片，支持反向提示词
 - **图像编辑** - 选择本地图片，用提示词进行 AI 编辑
-- **双后端** - DashScope 云端 API 或本地 SD WebUI Forge 服务器
-- **LoRA 支持** - SD WebUI 后端可选择 LoRA 模型并调节权重
+- **多提供商架构** - 设置页可切换图像服务提供商（当前内置阿里云百炼，可扩展接入更多 API）
 - **模型管理** - 预置模型 + 自定义模型，可自由启用/禁用
 - **相册** - 浏览生成历史，支持搜索、类型筛选、排序、收藏、批量操作
 - **图片详情** - 全屏查看、保存、分享、复制提示词、基于原图重新生成/编辑
@@ -19,8 +18,7 @@ AI 图像生成与编辑 Android 应用，基于 Jetpack Compose 构建，支持
 ## Requirements
 
 - Android 7.0 (API 24) 或更高版本
-- DashScope 后端：需要阿里云百炼平台 API Key（[申请地址](https://dashscope.aliyun.com/)）
-- SD WebUI 后端：需要运行 SD WebUI Forge 并开启 API（局域网访问）
+- 阿里云百炼平台 API Key（[申请地址](https://dashscope.aliyun.com/)）
 
 ## Getting Started
 
@@ -33,9 +31,7 @@ AI 图像生成与编辑 Android 应用，基于 Jetpack Compose 构建，支持
 
 3. 构建并运行到设备或模拟器。
 
-4. 首次启动后进入 **设置**：
-   - **DashScope 后端**：输入 API Key
-   - **SD WebUI 后端**：输入服务器地址（手机和电脑需在同一局域网）
+4. 首次启动后进入 **设置 → 图像服务**，选择提供商并输入 API Key。
 
 ## Build
 
@@ -73,7 +69,7 @@ Windows 上使用 `gradlew.bat` 代替 `./gradlew`。
 
 ```
 app/src/main/java/com/example/genbrush/
-├── GenBrushApp.kt                 # Application（HTTP 客户端、依赖初始化）
+├── GenBrushApp.kt                 # Application（HTTP 客户端、提供商注册、依赖初始化）
 ├── MainActivity.kt                # 入口 Activity
 ├── data/
 │   ├── local/
@@ -81,24 +77,33 @@ app/src/main/java/com/example/genbrush/
 │   │   ├── DataMigrationManager.kt # 数据导入/导出
 │   │   ├── ImageSaver.kt          # 保存图片到系统相册（OOM 保护）
 │   │   ├── ImageStore.kt          # 图片文件存储与管理
-│   │   └── PreferencesManager.kt  # 加密偏好设置
-│   ├── remote/
-│   │   ├── DashScopeApi.kt        # DashScope API 客户端
-│   │   ├── StableDiffusionApi.kt  # SD WebUI API 客户端
-│   │   └── model/                 # API 数据模型
+│   │   └── PreferencesManager.kt  # 加密偏好设置（含提供商 id 与 API key）
+│   ├── provider/
+│   │   ├── ImageProvider.kt       # 提供商抽象（接口 + 通用请求/结果类型）
+│   │   ├── ProviderDefinition.kt  # 提供商元数据（显示名、预设模型、能力）
+│   │   ├── ProviderRegistry.kt    # 已注册提供商集合
+│   │   └── dashscope/             # DashScope（阿里云百炼）实现
 │   └── repository/
-│       └── GenerationRepository.kt # 数据仓库（双后端调度）
+│       └── GenerationRepository.kt # 数据仓库（解析当前提供商并落盘入库）
 └── ui/
     ├── common/                    # 通用工具（ErrorMapper）
-    ├── components/                # 可复用组件（ModelSelector、SizeSelector、LoraSelector 等）
+    ├── components/                # 可复用组件（ModelSelector、SizeSelector 等）
     ├── gallery/                   # 相册（列表、搜索、筛选、批量操作）
     ├── imageedit/                 # 图像编辑界面
     ├── texttoimage/               # 文生图界面
-    ├── settings/                  # 设置（API 配置、模型管理、数据迁移）
+    ├── settings/                  # 设置（提供商选择、API 配置、模型管理、数据迁移）
     ├── localization/              # 中英文字符串资源
     ├── navigation/                # 底部导航
     └── theme/                     # Material 3 主题
 ```
+
+## 接入新的图像提供商
+
+1. 在 `data/provider/<id>/` 下实现 `ImageProvider` 接口（文生图 + 图编辑）；
+2. 提供该提供商的 `ProviderDefinition`（显示名、预设模型、默认模型等）；
+3. 在 `GenBrushApp.onCreate()` 中构造并注册进 `ProviderRegistry`。
+
+设置页的提供商选择器会自动列出新注册的提供商。
 
 ## Contributing
 
@@ -111,7 +116,6 @@ MIT License - 详见 [LICENSE](LICENSE)
 ## Acknowledgments
 
 - [DashScope API](https://dashscope.aliyun.com/) - 阿里云百炼
-- [Stable Diffusion WebUI Forge](https://github.com/lllyasviel/stable-diffusion-webui-forge)
 - [Jetpack Compose](https://developer.android.com/jetpack/compose)
 - [Material 3](https://m3.material.io/)
 - [Coil](https://github.com/coil-kt/coil) - 图片加载

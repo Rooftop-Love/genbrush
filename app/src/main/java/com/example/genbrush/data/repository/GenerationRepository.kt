@@ -1,4 +1,4 @@
-﻿package com.example.genbrush.data.repository
+package com.example.genbrush.data.repository
 
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -8,28 +8,22 @@ import com.example.genbrush.data.local.AppLogStore
 import com.example.genbrush.data.local.ImageEntry
 import com.example.genbrush.data.local.ImageStore
 import com.example.genbrush.data.local.PreferencesManager
-import com.example.genbrush.data.remote.DashScopeApi
-import com.example.genbrush.data.remote.StableDiffusionApi
-import com.example.genbrush.data.remote.model.ContentItem
-import com.example.genbrush.data.remote.model.GenerationRequest
-import com.example.genbrush.data.remote.model.Input
-import com.example.genbrush.data.remote.model.Message
-import com.example.genbrush.data.remote.model.Parameters
-import com.example.genbrush.data.remote.model.SdImg2ImgRequest
-import com.example.genbrush.data.remote.model.SdTxt2ImgRequest
-import com.example.genbrush.data.remote.model.TaskInput
-import com.example.genbrush.data.remote.model.TaskParameters
-import com.example.genbrush.data.remote.model.TaskSubmitRequest
-import com.example.genbrush.data.remote.model.isQwenImage3Model
-import com.example.genbrush.data.remote.model.isWanModel
+import com.example.genbrush.data.provider.ImageEditRequest
+import com.example.genbrush.data.provider.ProviderCredentials
+import com.example.genbrush.data.provider.ProviderImage
+import com.example.genbrush.data.provider.ProviderRegistry
+import com.example.genbrush.data.provider.TextToImageRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
+/**
+ * 生成入口：按 prefs 中的 provider id 从 [ProviderRegistry] 解析当前提供商并转发请求。
+ * 本类只负责编排（凭据、日志、取消）与结果落盘入库；远端调用细节在各 ImageProvider 实现里。
+ */
 class GenerationRepository(
-    private val dashScopeApi: DashScopeApi,
-    private val sdApi: StableDiffusionApi,
+    private val registry: ProviderRegistry,
     private val imageStore: ImageStore,
     private val prefs: PreferencesManager
 ) {
@@ -39,15 +33,29 @@ class GenerationRepository(
         model: String,
         size: String
     ): Result<ImageEntry> {
-        val backend = prefs.backend
+        val provider = registry.resolve(prefs.providerId)
+        val providerId = provider.definition.id
         AppLogStore.info(
-            "Generation start type=text_to_image backend=$backend model=$model size=$size " +
+            "Generation start type=text_to_image provider=$providerId model=$model size=$size " +
                 "promptChars=${prompt.length} negativePromptChars=${negativePrompt.length}"
         )
         val result = try {
-            when (backend) {
-                PreferencesManager.BACKEND_SD_WEBUI -> generateWithSdTxt2Img(prompt, negativePrompt, size)
-                else -> generateWithDashScope(prompt, negativePrompt, model, size)
+            val credentials = ProviderCredentials(prefs.providerApiKey(providerId))
+            if (credentials.apiKey.isBlank()) {
+                Result.failure(Exception("请先在设置中配置 API Key"))
+            } else {
+                provider.generateTextToImage(
+                    credentials,
+                    TextToImageRequest(
+                        prompt = prompt,
+                        negativePrompt = negativePrompt,
+                        model = model,
+                        size = size
+                    )
+                ).fold(
+                    onSuccess = { saveImage(it, prompt, model, size, negativePrompt, "text_to_image") },
+                    onFailure = { Result.failure(it) }
+                )
             }
         } catch (e: CancellationException) {
             throw e
@@ -57,13 +65,13 @@ class GenerationRepository(
         result
             .onSuccess {
                 AppLogStore.info(
-                    "Generation success type=text_to_image backend=$backend model=${it.model} " +
+                    "Generation success type=text_to_image provider=$providerId model=${it.model} " +
                         "file=${it.fileName}"
                 )
             }
             .onFailure {
                 AppLogStore.error(
-                    "Generation failed type=text_to_image backend=$backend model=$model size=$size: ${it.message}",
+                    "Generation failed type=text_to_image provider=$providerId model=$model size=$size: ${it.message}",
                     it
                 )
             }
@@ -77,15 +85,31 @@ class GenerationRepository(
         size: String,
         context: Context
     ): Result<ImageEntry> {
-        val backend = prefs.backend
+        val provider = registry.resolve(prefs.providerId)
+        val providerId = provider.definition.id
         AppLogStore.info(
-            "Generation start type=image_edit backend=$backend model=$model size=$size " +
+            "Generation start type=image_edit provider=$providerId model=$model size=$size " +
                 "promptChars=${prompt.length} imageScheme=${imageUri.scheme.orEmpty()}"
         )
         val result = try {
-            when (backend) {
-                PreferencesManager.BACKEND_SD_WEBUI -> generateWithSdImg2Img(imageUri, prompt, size, context)
-                else -> generateImageEditDashScope(imageUri, prompt, model, size, context)
+            val credentials = ProviderCredentials(prefs.providerApiKey(providerId))
+            if (credentials.apiKey.isBlank()) {
+                Result.failure(Exception("请先在设置中配置 API Key"))
+            } else {
+                val imageDataUri = "data:image/jpeg;base64," + encodeImageToBase64(imageUri, context)
+                provider.generateImageEdit(
+                    credentials,
+                    ImageEditRequest(
+                        prompt = prompt,
+                        negativePrompt = "",
+                        model = model,
+                        size = size,
+                        imageDataUri = imageDataUri
+                    )
+                ).fold(
+                    onSuccess = { saveImage(it, prompt, model, size, "", "image_edit") },
+                    onFailure = { Result.failure(it) }
+                )
             }
         } catch (e: CancellationException) {
             throw e
@@ -95,290 +119,47 @@ class GenerationRepository(
         result
             .onSuccess {
                 AppLogStore.info(
-                    "Generation success type=image_edit backend=$backend model=${it.model} file=${it.fileName}"
+                    "Generation success type=image_edit provider=$providerId model=${it.model} file=${it.fileName}"
                 )
             }
             .onFailure {
                 AppLogStore.error(
-                    "Generation failed type=image_edit backend=$backend model=$model size=$size: ${it.message}",
+                    "Generation failed type=image_edit provider=$providerId model=$model size=$size: ${it.message}",
                     it
                 )
             }
         return result
     }
 
-    // ==================== SD WebUI Backend ====================
+    // ==================== 结果落盘入库 ====================
 
-    private suspend fun generateWithSdTxt2Img(
-        prompt: String,
-        negativePrompt: String,
-        size: String
-    ): Result<ImageEntry> {
-        val serverUrl = prefs.sdServerUrl
-        if (serverUrl.isBlank()) {
-            return Result.failure(Exception("请先在设置中配置 SD 服务器地址"))
-        }
-
-        val parts = size.split("*")
-        val width = parts.getOrNull(0)?.toIntOrNull() ?: 1024
-        val height = parts.getOrNull(1)?.toIntOrNull() ?: 1024
-
-        val request = SdTxt2ImgRequest(
-            prompt = prompt,
-            negative_prompt = negativePrompt,
-            width = width,
-            height = height
-        )
-
-        val response = sdApi.txt2img(serverUrl, request)
-        return response.fold(
-            onSuccess = { sdResponse ->
-                try {
-                    val base64Image = sdResponse.images.first()
-                    val imageBytes = Base64.decode(base64Image, Base64.DEFAULT)
-                    val fileName = ImageStore.createFileName("text_to_image")
-                    val entry = ImageEntry(
-                        fileName = fileName,
-                        prompt = prompt,
-                        model = "SD Forge (local)",
-                        type = "text_to_image",
-                        size = size,
-                        negativePrompt = negativePrompt
-                    )
-                    Result.success(imageStore.saveImageFromBytes(imageBytes, entry))
-                } catch (e: Exception) {
-                    Result.failure(Exception("保存图片失败：${e.message}"))
-                }
-            },
-            onFailure = { Result.failure(it) }
-        )
-    }
-
-    private suspend fun generateWithSdImg2Img(
-        imageUri: Uri,
-        prompt: String,
-        size: String,
-        context: Context
-    ): Result<ImageEntry> {
-        val serverUrl = prefs.sdServerUrl
-        if (serverUrl.isBlank()) {
-            return Result.failure(Exception("请先在设置中配置 SD 服务器地址"))
-        }
-
-        val base64Image = encodeImageToBase64(imageUri, context)
-
-        val parts = size.split("*")
-        val width = parts.getOrNull(0)?.toIntOrNull() ?: 1024
-        val height = parts.getOrNull(1)?.toIntOrNull() ?: 1024
-
-        val request = SdImg2ImgRequest(
-            prompt = prompt,
-            init_images = listOf(base64Image),
-            width = width,
-            height = height
-        )
-
-        val response = sdApi.img2img(serverUrl, request)
-        return response.fold(
-            onSuccess = { sdResponse ->
-                try {
-                    val resultBase64 = sdResponse.images.first()
-                    val imageBytes = Base64.decode(resultBase64, Base64.DEFAULT)
-                    val fileName = ImageStore.createFileName("image_edit")
-                    val entry = ImageEntry(
-                        fileName = fileName,
-                        prompt = prompt,
-                        model = "SD Forge (local)",
-                        type = "image_edit",
-                        size = size
-                    )
-                    Result.success(imageStore.saveImageFromBytes(imageBytes, entry))
-                } catch (e: Exception) {
-                    Result.failure(Exception("保存编辑后的图片失败：${e.message}"))
-                }
-            },
-            onFailure = { Result.failure(it) }
-        )
-    }
-
-    // ==================== DashScope Backend ====================
-
-    private suspend fun generateWithDashScope(
-        prompt: String,
-        negativePrompt: String,
-        model: String,
-        size: String
-    ): Result<ImageEntry> {
-        val apiKey = prefs.apiKey
-        if (apiKey.isBlank()) {
-            return Result.failure(Exception("请先在设置中配置 API Key"))
-        }
-
-        return if (isWanModel(model)) {
-            generateTextToImageAsync(apiKey, prompt, model, size)
-        } else {
-            generateTextToImageSync(apiKey, prompt, negativePrompt, model, size)
-        }
-    }
-
-    private suspend fun generateTextToImageSync(
-        apiKey: String,
-        prompt: String,
-        negativePrompt: String,
-        model: String,
-        size: String
-    ): Result<ImageEntry> {
-        val content = mutableListOf(ContentItem(text = prompt))
-        val request = GenerationRequest(
-            model = model,
-            input = Input(messages = listOf(Message(role = "user", content = content))),
-            parameters = Parameters(
-                size = size,
-                n = 1,
-                negative_prompt = negativePrompt.ifBlank { null },
-                prompt_extend = true,
-                prompt_extend_mode = if (isQwenImage3Model(model)) "direct" else null,
-                watermark = false
-            )
-        )
-
-        val response = dashScopeApi.generateImage(apiKey, request)
-        return response.fold(
-            onSuccess = { genResponse ->
-                try {
-                    val imageUrl = genResponse.output?.choices?.firstOrNull()?.message?.content?.firstOrNull()?.image
-                        ?: throw Exception("响应中未包含图片")
-                    val fileName = ImageStore.createFileName("text_to_image")
-                    val entry = ImageEntry(
-                        fileName = fileName,
-                        prompt = prompt,
-                        model = model,
-                        type = "text_to_image",
-                        size = size,
-                        negativePrompt = negativePrompt
-                    )
-                    Result.success(imageStore.saveImageFromUrl(imageUrl, entry))
-                } catch (e: Exception) {
-                    Result.failure(Exception("保存图片失败：${e.message}"))
-                }
-            },
-            onFailure = { Result.failure(it) }
-        )
-    }
-
-    private suspend fun generateTextToImageAsync(
-        apiKey: String,
-        prompt: String,
-        model: String,
-        size: String
-    ): Result<ImageEntry> {
-        val request = TaskSubmitRequest(
-            model = model,
-            input = TaskInput(
-                messages = listOf(
-                    Message(
-                        role = "user",
-                        content = listOf(ContentItem(text = prompt))
-                    )
-                )
-            ),
-            parameters = TaskParameters(
-                size = size,
-                n = 1,
-                watermark = false
-            )
-        )
-
-        val submitResult = dashScopeApi.submitAsyncTask(apiKey, request)
-        val taskId = submitResult.fold(
-            onSuccess = { it.output?.task_id ?: return Result.failure(Exception("未获取到任务 ID")) },
-            onFailure = { return Result.failure(it) }
-        )
-
-        val statusResult = dashScopeApi.pollTaskStatus(apiKey, taskId)
-        return statusResult.fold(
-            onSuccess = { statusResponse ->
-                try {
-                    val imageUrl = statusResponse.output?.choices
-                        ?.firstOrNull()
-                        ?.message
-                        ?.content
-                        ?.firstOrNull()
-                        ?.image
-                        ?: statusResponse.output?.results?.firstOrNull()?.url
-                        ?: throw Exception("响应中未包含图片")
-                    val fileName = ImageStore.createFileName("text_to_image")
-                    val entry = ImageEntry(
-                        fileName = fileName,
-                        prompt = prompt,
-                        model = model,
-                        type = "text_to_image",
-                        size = size
-                    )
-                    Result.success(imageStore.saveImageFromUrl(imageUrl, entry))
-                } catch (e: Exception) {
-                    Result.failure(Exception("保存图片失败：${e.message}"))
-                }
-            },
-            onFailure = { Result.failure(it) }
-        )
-    }
-
-    private suspend fun generateImageEditDashScope(
-        imageUri: Uri,
+    private suspend fun saveImage(
+        image: ProviderImage,
         prompt: String,
         model: String,
         size: String,
-        context: Context
-    ): Result<ImageEntry> {
-        val apiKey = prefs.apiKey
-        if (apiKey.isBlank()) {
-            return Result.failure(Exception("请先在设置中配置 API Key"))
-        }
-
-        val base64Image = encodeImageToBase64(imageUri, context)
-
-        val content = listOf(
-            ContentItem(image = "data:image/jpeg;base64,$base64Image"),
-            ContentItem(text = prompt)
-        )
-
-        val request = GenerationRequest(
+        negativePrompt: String,
+        type: String
+    ): Result<ImageEntry> = try {
+        val fileName = ImageStore.createFileName(type)
+        val entry = ImageEntry(
+            fileName = fileName,
+            prompt = prompt,
             model = model,
-            input = Input(messages = listOf(Message(role = "user", content = content))),
-            parameters = Parameters(
-                size = size,
-                n = 1,
-                prompt_extend = true,
-                prompt_extend_mode = if (isQwenImage3Model(model)) "direct" else null,
-                watermark = false
-            )
+            type = type,
+            size = size,
+            negativePrompt = negativePrompt
         )
-
-        val response = dashScopeApi.generateImage(apiKey, request)
-        return response.fold(
-            onSuccess = { genResponse ->
-                try {
-                    val imageUrl = genResponse.output?.choices?.firstOrNull()?.message?.content?.firstOrNull()?.image
-                        ?: throw Exception("响应中未包含图片")
-                    val fileName = ImageStore.createFileName("image_edit")
-                    val entry = ImageEntry(
-                        fileName = fileName,
-                        prompt = prompt,
-                        model = model,
-                        type = "image_edit",
-                        size = size
-                    )
-                    Result.success(imageStore.saveImageFromUrl(imageUrl, entry))
-                } catch (e: Exception) {
-                    Result.failure(Exception("保存编辑后的图片失败：${e.message}"))
-                }
-            },
-            onFailure = { Result.failure(it) }
-        )
+        val saved = when (image) {
+            is ProviderImage.Remote -> imageStore.saveImageFromUrl(image.url, entry)
+            is ProviderImage.Raw -> imageStore.saveImageFromBytes(image.bytes, entry)
+        }
+        Result.success(saved)
+    } catch (e: Exception) {
+        Result.failure(Exception("保存图片失败：${e.message}"))
     }
 
-    // ==================== Common ====================
+    // ==================== 画廊 ====================
 
     suspend fun getGalleryImages(): List<ImageEntry> = imageStore.getAllEntries()
 
@@ -391,6 +172,8 @@ class GenerationRepository(
     suspend fun deleteImage(entry: ImageEntry) = imageStore.deleteImage(entry)
 
     suspend fun setFavorite(id: String, favorite: Boolean) = imageStore.setFavorite(id, favorite)
+
+    // ==================== 工具 ====================
 
     private suspend fun encodeImageToBase64(uri: Uri, context: Context): String =
         withContext(Dispatchers.IO) {

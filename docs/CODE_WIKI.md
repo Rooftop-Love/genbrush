@@ -2,6 +2,15 @@
 
 > AI 图像生成与编辑 Android 应用的结构化代码文档。本文档基于源码分析生成，涵盖项目整体架构、主要模块职责、关键类与函数说明、依赖关系以及项目运行方式。
 
+> **⚠️ 架构变更说明（v1.2，2026-09）**：自 v1.2 起，SD WebUI（Stable Diffusion）源已被移除，项目改为**多提供商架构**（类似 Chatbox 的提供商模型，当前仅内置百炼）。核心变化：
+> - 新增 `data/provider/` 包：`ImageProvider`（提供商接口 + 通用请求/结果类型）、`ProviderDefinition`（提供商元数据：显示名/预设模型/能力）、`ProviderRegistry`（提供商注册表，按 id 解析当前提供商）。
+> - DashScope 实现迁入 `data/provider/dashscope/`：`DashScopeProvider`（编排同步/异步生成）、`DashScopeDefinition`（预设模型表、各模型系列尺寸表、模型族判断——原 `ModelSelector`/`SizeSelector`/`ApiModels` 中的知识迁至此处）、`DashScopeApi` + `ApiModels`（原 `data/remote/` 迁入）。
+> - `GenerationRepository` 改为从 `ProviderRegistry` 解析当前提供商并负责落盘入库；SD 相关代码（`StableDiffusionApi`、`SdApiModels`、`LoraSelector`、LoRA 逻辑、SD 设置页与尺寸表）全部删除。
+> - 设置页改为提供商下拉选择器（列表来自 `ProviderRegistry`），首选项存于 `provider_id`（旧 `backend_type` 自动迁移）；API key 按提供商命名空间化存储（`api_key_<providerId>`，兼容读取旧全局 `api_key`）。
+> - **接入新提供商**：实现 `ImageProvider` + 提供 `ProviderDefinition` + 在 `GenBrushApp` 注册，设置页选择器会自动列出。
+>
+> 下文正文中关于"双后端"、"SD WebUI"、"LoRA"的章节描述的是 v1.1 及之前的架构，保留作为历史参考。
+
 ---
 
 ## 目录

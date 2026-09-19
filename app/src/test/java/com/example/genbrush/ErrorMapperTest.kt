@@ -1,6 +1,6 @@
 package com.example.genbrush
 
-import com.example.genbrush.data.remote.DashScopeException
+import com.example.genbrush.data.provider.dashscope.DashScopeException
 import com.example.genbrush.ui.common.mapError
 import com.example.genbrush.ui.localization.AppStrings
 import org.junit.Assert.assertEquals
@@ -57,14 +57,6 @@ class ErrorMapperTest {
         val result = mapError(ex, AppStrings.ZH)
 
         assertTrue("网络错误应展示友好提示", result.contains("网络错误"))
-    }
-
-    @Test
-    fun `普通 Exception 含 SD API 错误应原样展示`() {
-        val ex = Exception("SD API 错误: HTTP 500 - Internal Server Error")
-        val result = mapError(ex, AppStrings.ZH)
-
-        assertEquals("SD API 错误: HTTP 500 - Internal Server Error", result)
     }
 
     @Test

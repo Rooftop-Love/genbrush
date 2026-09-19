@@ -1,7 +1,7 @@
 ﻿package com.example.genbrush.ui.common
 
 import com.example.genbrush.data.local.PreferencesManager
-import com.example.genbrush.data.remote.DashScopeException
+import com.example.genbrush.data.provider.dashscope.DashScopeException
 import com.example.genbrush.ui.localization.AppStrings
 import com.example.genbrush.ui.localization.resolveAppStrings
 
@@ -21,9 +21,6 @@ fun mapError(e: Throwable, s: AppStrings): String {
         msg.contains("InvalidApiKey", ignoreCase = true) -> s.errInvalidKey
         msg.contains("Throttling", ignoreCase = true) || msg.contains("429") -> s.errRateLimit
         msg.contains("DataInspectionFailed", ignoreCase = true) -> s.errContentSafety
-        msg.contains("SD API 错误", ignoreCase = true) -> msg
-        msg.contains("SD 未返回图片", ignoreCase = true) -> msg
-        msg.contains("请先在设置中配置 SD 服务器", ignoreCase = true) -> msg
         msg.contains("timeout", ignoreCase = true) || msg.contains("connect", ignoreCase = true) -> s.errNetwork
         msg.contains("HTTP 5", ignoreCase = true) -> s.errServer
         msg.contains("cleartext", ignoreCase = true) -> s.errCleartext

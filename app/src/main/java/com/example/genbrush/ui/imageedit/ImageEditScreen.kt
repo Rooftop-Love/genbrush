@@ -46,7 +46,6 @@ import coil3.compose.AsyncImage
 import com.example.genbrush.ui.components.ErrorResultCard
 import com.example.genbrush.ui.components.ImageResultCard
 import com.example.genbrush.ui.components.LoadingOverlay
-import com.example.genbrush.ui.components.LoraSelector
 import com.example.genbrush.ui.components.ModelSelector
 import com.example.genbrush.ui.components.SizeSelector
 import com.example.genbrush.ui.localization.LocalStrings
@@ -183,15 +182,6 @@ fun ImageEditScreen(viewModel: ImageEditViewModel) {
                 sizeOptions = state.availableSizes
             )
 
-            if (state.isSdBackend) {
-                LoraSelector(
-                    availableLoras = state.availableLoras,
-                    selectedLoras = state.selectedLoras,
-                    onToggleLora = viewModel::toggleLora,
-                    onWeightChange = viewModel::updateLoraWeight
-                )
-            }
-
             Button(
                 onClick = { viewModel.generate(context) },
                 enabled = !state.isGenerating && state.sourceImageUri != null && state.prompt.isNotBlank(),
@@ -202,7 +192,6 @@ fun ImageEditScreen(viewModel: ImageEditViewModel) {
 
             LoadingOverlay(
                 isLoading = state.isGenerating,
-                hint = if (state.isSdBackend) s.loadingHintSd else null,
                 elapsedSeconds = state.elapsedSeconds,
                 onStop = viewModel::stopGeneration
             )

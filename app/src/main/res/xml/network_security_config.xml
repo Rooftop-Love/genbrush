@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 允许局域网 HTTP 明文流量（SD WebUI Forge 默认无 SSL） -->
+    <!-- 允许 HTTP 明文流量：为将来接入局域网本地端点类提供商（如 ComfyUI）预留 -->
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />

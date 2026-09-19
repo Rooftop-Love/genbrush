@@ -20,9 +20,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Visibility
@@ -32,7 +30,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,8 +43,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -50,8 +50,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -64,9 +66,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.example.genbrush.data.local.AppLogStore
 import com.example.genbrush.data.local.DataMigrationManager
 import com.example.genbrush.data.local.PreferencesManager
+import com.example.genbrush.data.provider.ProviderDefinition
 import com.example.genbrush.ui.components.ModelSelector
-import com.example.genbrush.ui.components.PRESET_EDIT_MODELS
-import com.example.genbrush.ui.components.PRESET_GENERATION_MODELS
 import com.example.genbrush.ui.components.SizeSelector
 import com.example.genbrush.ui.components.buildAvailableModels
 import com.example.genbrush.ui.localization.AppStrings
@@ -208,6 +209,54 @@ private fun ModelListSection(
     }
 }
 
+// ── 提供商选择器（列表来自 ProviderRegistry）─────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProviderSelector(
+    providers: List<ProviderDefinition>,
+    selectedId: String,
+    language: String,
+    label: String,
+    onProviderSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = providers.firstOrNull { it.id == selectedId }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = modifier
+    ) {
+        OutlinedTextField(
+            value = selected?.displayName(language) ?: selectedId,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            providers.forEach { definition ->
+                DropdownMenuItem(
+                    text = { Text(definition.displayName(language)) },
+                    onClick = {
+                        onProviderSelected(definition.id)
+                        expanded = false
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                )
+            }
+        }
+    }
+}
+
 // ── 模型管理二级页面 ──────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -241,7 +290,7 @@ private fun ModelManagementPage(
                 onToggle = {}
             ) {
                 ModelListSection(
-                    presetModels = PRESET_GENERATION_MODELS,
+                    presetModels = state.presetGenerationModels,
                     disabledModels = state.disabledGenerationModels,
                     customModels = state.customGenerationModels,
                     customModelInput = state.customGenModelInput,
@@ -260,7 +309,7 @@ private fun ModelManagementPage(
                 onToggle = {}
             ) {
                 ModelListSection(
-                    presetModels = PRESET_EDIT_MODELS,
+                    presetModels = state.presetEditModels,
                     disabledModels = state.disabledEditModels,
                     customModels = state.customEditModels,
                     customModelInput = state.customEditModelInput,
@@ -298,7 +347,6 @@ fun SettingsScreen(
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val s = LocalStrings.current
-    val isDashScope = state.backend == PreferencesManager.BACKEND_DASHSCOPE
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val migrationManager = remember { DataMigrationManager(context) }
@@ -386,7 +434,6 @@ fun SettingsScreen(
     }
 
     // ── 主设置页面 ──
-    val selectedTabIndex = if (isDashScope) 0 else 1
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -394,134 +441,77 @@ fun SettingsScreen(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
         )
 
-        // ── 后端标签页 ──
-        PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
-            Tab(
-                selected = isDashScope,
-                onClick = { viewModel.selectBackend(PreferencesManager.BACKEND_DASHSCOPE) },
-                text = { Text(s.tabDashScope) }
-            )
-            Tab(
-                selected = !isDashScope,
-                onClick = { viewModel.selectBackend(PreferencesManager.BACKEND_SD_WEBUI) },
-                text = { Text(s.tabSdWebUI) }
-            )
-        }
-
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Spacer(modifier = Modifier.height(6.dp))
 
-            // ── DashScope 标签页内容 ──
-            AnimatedVisibility(visible = isDashScope) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // API 配置
-                    SettingsSectionCard(
-                        title = s.settingsApiConfig,
-                        expanded = SECTION_API_CONFIG in state.expandedSections,
-                        onToggle = { viewModel.toggleSection(SECTION_API_CONFIG) }
-                    ) {
-                        OutlinedTextField(
-                            value = state.apiKey,
-                            onValueChange = viewModel::updateApiKey,
-                            label = { Text(s.settingsApiKeyLabel) },
-                            placeholder = { Text(s.settingsApiPlaceholder) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            visualTransformation = if (state.isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                IconButton(onClick = viewModel::toggleApiKeyVisibility) {
-                                    Icon(
-                                        if (state.isApiKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                        contentDescription = if (state.isApiKeyVisible) s.settingsHide else s.settingsShow
-                                    )
-                                }
-                            },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(s.settingsApiKeyHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-
-                    // 模型管理入口（二级菜单）
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clickable { viewModel.openModelManagement() },
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    s.settingsModelManagement,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    s.settingsManageModels,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+            // ── 图像服务（提供商选择 + API 配置）──
+            SettingsSectionCard(
+                title = s.settingsImageService,
+                expanded = SECTION_API_CONFIG in state.expandedSections,
+                onToggle = { viewModel.toggleSection(SECTION_API_CONFIG) }
+            ) {
+                ProviderSelector(
+                    providers = state.providers,
+                    selectedId = state.providerId,
+                    language = state.language,
+                    label = s.settingsProvider,
+                    onProviderSelected = viewModel::selectProvider
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = state.apiKey,
+                    onValueChange = viewModel::updateApiKey,
+                    label = { Text(s.settingsApiKeyLabel) },
+                    placeholder = { Text(s.settingsApiPlaceholder) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = if (state.isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = viewModel::toggleApiKeyVisibility) {
                             Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                if (state.isApiKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (state.isApiKeyVisible) s.settingsHide else s.settingsShow
                             )
                         }
-                    }
-                }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(s.settingsApiKeyHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            // ── SD WebUI 标签页内容 ──
-            AnimatedVisibility(visible = !isDashScope) {
-                SettingsSectionCard(
-                    title = s.settingsSdServerConfig,
-                    expanded = SECTION_SD_SERVER in state.expandedSections,
-                    onToggle = { viewModel.toggleSection(SECTION_SD_SERVER) }
+            // 模型管理入口（二级菜单）
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { viewModel.openModelManagement() },
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = state.sdServerUrl,
-                        onValueChange = viewModel::updateSdServerUrl,
-                        label = { Text(s.settingsSdServerUrl) },
-                        placeholder = { Text("http://192.168.x.x:7860") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(s.settingsSdServerHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedButton(onClick = viewModel::testSdConnection, enabled = !state.isTestingConnection) {
-                            if (state.isTestingConnection) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-                            Text(s.settingsSdTestConnection)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        state.sdConnectionStatus?.let { status ->
-                            when (status) {
-                                "ok" -> {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(s.settingsSdConnected, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                                }
-                                else -> {
-                                    Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(status.removePrefix("fail:"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                                }
-                            }
-                        }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            s.settingsModelManagement,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            s.settingsManageModels,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 
@@ -532,7 +522,7 @@ fun SettingsScreen(
                 onToggle = { viewModel.toggleSection(SECTION_DEFAULTS) }
             ) {
                 val configuredModels = buildAvailableModels(
-                    PRESET_GENERATION_MODELS,
+                    state.presetGenerationModels,
                     state.disabledGenerationModels,
                     state.customGenerationModels
                 )

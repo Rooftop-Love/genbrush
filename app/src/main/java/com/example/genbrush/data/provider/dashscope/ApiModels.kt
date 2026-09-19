@@ -1,4 +1,4 @@
-﻿package com.example.genbrush.data.remote.model
+﻿package com.example.genbrush.data.provider.dashscope
 
 // --- Sync request (qwen-image models) ---
 data class GenerationRequest(
@@ -107,8 +107,3 @@ data class TaskResult(
     val orig_url: String?,
     val b64_image: String?
 )
-
-fun isWanModel(model: String): Boolean = model.startsWith("wan")
-
-fun isQwenImage3Model(model: String): Boolean =
-    model == "qwen-image-3.0-pro" || model == "qwen-image-3.0"

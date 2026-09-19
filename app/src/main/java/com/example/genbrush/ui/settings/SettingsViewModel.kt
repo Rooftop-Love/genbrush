@@ -2,29 +2,24 @@ package com.example.genbrush.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.viewModelScope
 import com.example.genbrush.data.local.PreferencesManager
-import com.example.genbrush.data.remote.StableDiffusionApi
-import com.example.genbrush.ui.components.PRESET_EDIT_MODELS
-import com.example.genbrush.ui.components.PRESET_GENERATION_MODELS
-import com.example.genbrush.ui.components.SizeOption
-import com.example.genbrush.ui.components.getSupportedSizes
+import com.example.genbrush.data.provider.ProviderDefinition
+import com.example.genbrush.data.provider.ProviderRegistry
+import com.example.genbrush.data.provider.SizeOption
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 
 // 可折叠面板的标识
 const val SECTION_API_CONFIG = "api_config"
-const val SECTION_SD_SERVER = "sd_server"
 const val SECTION_DEFAULTS = "defaults"
 const val SECTION_LANGUAGE = "language"
 const val SECTION_ABOUT = "about"
 const val SECTION_MIGRATION = "migration"
 
 private val ALL_SECTIONS = setOf(
-    SECTION_API_CONFIG, SECTION_SD_SERVER,
+    SECTION_API_CONFIG,
     SECTION_DEFAULTS, SECTION_LANGUAGE, SECTION_MIGRATION, SECTION_ABOUT
 )
 
@@ -34,13 +29,14 @@ data class SettingsState(
     val defaultModel: String = PreferencesManager.DEFAULT_MODEL,
     val defaultSize: String = PreferencesManager.DEFAULT_SIZE,
     val language: String = PreferencesManager.LANGUAGE_ZH,
-    val backend: String = PreferencesManager.BACKEND_DASHSCOPE,
-    val sdServerUrl: String = "",
-    val sdConnectionStatus: String? = null,
-    val isTestingConnection: Boolean = false,
+    val providerId: String = PreferencesManager.DEFAULT_PROVIDER_ID,
+    // 提供商选择器数据（来自 ProviderRegistry）
+    val providers: List<ProviderDefinition> = emptyList(),
     val saveSuccess: Boolean = false,
 
-    // 模型管理
+    // 模型管理（预置列表来自当前提供商 definition）
+    val presetGenerationModels: List<String> = emptyList(),
+    val presetEditModels: List<String> = emptyList(),
     val disabledGenerationModels: Set<String> = emptySet(),
     val disabledEditModels: Set<String> = emptySet(),
     val customGenerationModels: List<String> = emptyList(),
@@ -66,7 +62,7 @@ data class SettingsState(
 
 class SettingsViewModel(
     private val prefs: PreferencesManager,
-    private val sdApi: StableDiffusionApi
+    private val registry: ProviderRegistry
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsState())
@@ -96,7 +92,7 @@ class SettingsViewModel(
         _state.value.expandedSections.contains(section)
 
     fun selectModel(model: String) {
-        val sizes = getSupportedSizes(model, _state.value.backend == PreferencesManager.BACKEND_SD_WEBUI)
+        val sizes = registry.resolve(_state.value.providerId).supportedSizes(model)
         val safeSize = ensureSupportedSize(_state.value.defaultSize, sizes)
         _state.update { it.copy(defaultModel = model, availableSizes = sizes, defaultSize = safeSize, saveSuccess = false) }
     }
@@ -109,45 +105,21 @@ class SettingsViewModel(
         _state.update { it.copy(language = lang) }
     }
 
-    fun selectBackend(backend: String) {
-        val isSd = backend == PreferencesManager.BACKEND_SD_WEBUI
-        val sizes = getSupportedSizes(_state.value.defaultModel, isSd)
+    fun selectProvider(providerId: String) {
+        if (providerId == _state.value.providerId) return
+        val definition = _state.value.providers.firstOrNull { it.id == providerId } ?: return
+        val sizes = registry.resolve(providerId).supportedSizes(_state.value.defaultModel)
         val safeSize = ensureSupportedSize(_state.value.defaultSize, sizes)
-        _state.update { it.copy(backend = backend, availableSizes = sizes, defaultSize = safeSize, saveSuccess = false) }
-    }
-
-    fun updateSdServerUrl(url: String) {
-        _state.update { it.copy(sdServerUrl = url, sdConnectionStatus = null, saveSuccess = false) }
-    }
-
-    fun testSdConnection() {
-        val url = _state.value.sdServerUrl.trim()
-        if (url.isBlank()) {
-            _state.update { it.copy(sdConnectionStatus = "fail:请输入服务器地址") }
-            return
-        }
-
-        _state.update { it.copy(isTestingConnection = true, sdConnectionStatus = null) }
-
-        viewModelScope.launch {
-            val result = sdApi.testConnection(url)
-            result.fold(
-                onSuccess = { success ->
-                    _state.update {
-                        it.copy(
-                            isTestingConnection = false,
-                            sdConnectionStatus = if (success) "ok" else "fail:连接失败"
-                        )
-                    }
-                },
-                onFailure = { e ->
-                    _state.update {
-                        it.copy(
-                            isTestingConnection = false,
-                            sdConnectionStatus = "fail:${e.message ?: "连接失败"}"
-                        )
-                    }
-                }
+        _state.update {
+            it.copy(
+                providerId = providerId,
+                presetGenerationModels = definition.presetGenerationModels,
+                presetEditModels = definition.presetEditModels,
+                defaultModel = definition.defaultModel.takeIf { m -> m.isNotEmpty() } ?: it.defaultModel,
+                apiKey = prefs.providerApiKey(providerId),
+                availableSizes = sizes,
+                defaultSize = safeSize,
+                saveSuccess = false
             )
         }
     }
@@ -182,7 +154,7 @@ class SettingsViewModel(
             _state.update { it.copy(modelManageError = "模型名称不能为空") }
             return
         }
-        val allModels = PRESET_GENERATION_MODELS + _state.value.customGenerationModels
+        val allModels = _state.value.presetGenerationModels + _state.value.customGenerationModels
         if (name in allModels) {
             _state.update { it.copy(modelManageError = "模型已存在") }
             return
@@ -203,7 +175,7 @@ class SettingsViewModel(
             _state.update { it.copy(modelManageError = "模型名称不能为空") }
             return
         }
-        val allModels = PRESET_EDIT_MODELS + _state.value.customEditModels
+        val allModels = _state.value.presetEditModels + _state.value.customEditModels
         if (name in allModels) {
             _state.update { it.copy(modelManageError = "模型已存在") }
             return
@@ -261,30 +233,33 @@ class SettingsViewModel(
     }
 
     fun save() {
-        prefs.apiKey = _state.value.apiKey
-        prefs.defaultModel = _state.value.defaultModel
-        prefs.defaultSize = _state.value.defaultSize
-        prefs.backend = _state.value.backend
-        prefs.sdServerUrl = _state.value.sdServerUrl.trim()
-        prefs.disabledGenerationModels = _state.value.disabledGenerationModels
-        prefs.disabledEditModels = _state.value.disabledEditModels
-        prefs.customGenerationModels = _state.value.customGenerationModels
-        prefs.customEditModels = _state.value.customEditModels
+        val state = _state.value
+        prefs.providerId = state.providerId
+        prefs.setProviderApiKey(state.providerId, state.apiKey)
+        prefs.defaultModel = state.defaultModel
+        prefs.defaultSize = state.defaultSize
+        prefs.disabledGenerationModels = state.disabledGenerationModels
+        prefs.disabledEditModels = state.disabledEditModels
+        prefs.customGenerationModels = state.customGenerationModels
+        prefs.customEditModels = state.customEditModels
         _state.update { it.copy(saveSuccess = true) }
     }
 
     private fun load() {
-        val isSd = prefs.backend == PreferencesManager.BACKEND_SD_WEBUI
-        val sizes = getSupportedSizes(prefs.defaultModel, isSd)
+        val providerId = prefs.providerId
+        val definition = registry.resolve(providerId).definition
+        val sizes = registry.resolve(providerId).supportedSizes(prefs.defaultModel)
         val safeSize = ensureSupportedSize(prefs.defaultSize, sizes)
         _state.update {
             it.copy(
-                apiKey = prefs.apiKey,
+                apiKey = prefs.providerApiKey(providerId),
                 defaultModel = prefs.defaultModel,
                 defaultSize = safeSize,
                 language = prefs.language,
-                backend = prefs.backend,
-                sdServerUrl = prefs.sdServerUrl,
+                providerId = providerId,
+                providers = registry.all().map { provider -> provider.definition },
+                presetGenerationModels = definition.presetGenerationModels,
+                presetEditModels = definition.presetEditModels,
                 disabledGenerationModels = prefs.disabledGenerationModels,
                 disabledEditModels = prefs.disabledEditModels,
                 customGenerationModels = prefs.customGenerationModels,
@@ -303,11 +278,11 @@ class SettingsViewModel(
     }
 
     companion object {
-        fun factory(prefs: PreferencesManager, sdApi: StableDiffusionApi) =
+        fun factory(prefs: PreferencesManager, registry: ProviderRegistry) =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return SettingsViewModel(prefs, sdApi) as T
+                    return SettingsViewModel(prefs, registry) as T
                 }
             }
     }

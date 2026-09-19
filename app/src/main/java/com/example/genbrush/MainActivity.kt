@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
                 AppNavigation(
                     prefs = app.prefs,
                     repository = app.repository,
-                    sdApi = app.sdApi,
+                    registry = app.providerRegistry,
                     language = language,
                     onLanguageChange = app::setLanguage
                 )

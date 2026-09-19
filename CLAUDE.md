@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GenBrush is an Android app for AI image generation and editing, built with Jetpack Compose and Kotlin. It supports dual backends: DashScope (Alibaba Cloud) and SD WebUI Forge (local). Package: `com.example.genbrush`.
+GenBrush is an Android app for AI image generation and editing, built with Jetpack Compose and Kotlin. It uses a multi-provider architecture (`data/provider/`) with DashScope (Alibaba Cloud) as the currently registered provider; new API providers can be added by implementing `ImageProvider` and registering it in `GenBrushApp`. Package: `com.example.genbrush`.
 
 ## Build & Run
 
@@ -44,9 +44,13 @@ On Windows, use `gradlew.bat` instead of `./gradlew`.
 ## Architecture
 
 - Single-module Gradle project (`app`)
-- MVVM with Repository pattern, dual-backend dispatch (DashScope / SD WebUI)
+- MVVM with Repository pattern and a provider abstraction:
+  - `data/provider/ImageProvider.kt` — provider interface + provider-agnostic request/result types; `ProviderRegistry` holds all registered providers
+  - `data/provider/dashscope/` — DashScope implementation (sync qwen-image API, async wan task submit+poll, `DashScopeDefinition` owns preset models & size tables)
+  - `GenerationRepository` resolves the active provider from `prefs.providerId` and handles persistence (ImageStore/Room) + logging
+  - The active provider id and its API key are stored in EncryptedSharedPreferences (`PreferencesManager.providerId` / `providerApiKey(id)`)
 - `MainActivity` is the entry point, using `ComponentActivity` with Compose `setContent`
-- `GenBrushApp` (Application) initializes HTTP clients and dependencies
+- `GenBrushApp` (Application) initializes the HTTP client, builds the `ProviderRegistry`, and wires dependencies
 - Theme: `GenBrushTheme` in `ui/theme/` with dynamic color support (Android 12+)
 - All source lives under `app/src/main/java/com/example/genbrush/`
 
