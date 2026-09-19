@@ -174,6 +174,8 @@ data class AppStrings(
     val migrationError: String,
     val migrationExporting: String,
     val migrationImporting: String,
+    val logExport: String,
+    val logExportSuccess: String,
 
     // Error messages
     val errApiKey: String,
@@ -338,6 +340,8 @@ data class AppStrings(
             migrationError = "操作失败：",
             migrationExporting = "正在导出...",
             migrationImporting = "正在导入...",
+            logExport = "导出最近日志",
+            logExportSuccess = "日志导出成功",
             errApiKey = "请先在设置中配置 API Key",
             errInvalidKey = "API Key 无效，请在设置中检查。",
             errRateLimit = "请求频率过高，请稍后再试。",
@@ -500,6 +504,8 @@ data class AppStrings(
             migrationError = "Operation failed: ",
             migrationExporting = "Exporting...",
             migrationImporting = "Importing...",
+            logExport = "Export Recent Logs",
+            logExportSuccess = "Logs exported successfully",
             errApiKey = "Please set your API key in Settings",
             errInvalidKey = "Invalid API key. Please check Settings.",
             errRateLimit = "Rate limited. Please wait and try again.",

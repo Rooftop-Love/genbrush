@@ -8,8 +8,10 @@ import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.CachePolicy
 import okio.Path.Companion.toPath
+import com.example.genbrush.data.local.AppLogStore
 import com.example.genbrush.data.local.ImageStore
 import com.example.genbrush.data.local.PreferencesManager
+import com.example.genbrush.data.network.NetworkLoggingInterceptor
 import com.example.genbrush.data.remote.DashScopeApi
 import com.example.genbrush.data.remote.StableDiffusionApi
 import com.example.genbrush.data.repository.GenerationRepository
@@ -45,6 +47,7 @@ class GenBrushApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        AppLogStore.initialize(this)
         prefs = PreferencesManager(this)
 
         val okHttpClient = OkHttpClient.Builder()
@@ -53,10 +56,13 @@ class GenBrushApp : Application() {
             .readTimeout(300, TimeUnit.SECONDS)
             .writeTimeout(300, TimeUnit.SECONDS)
             .callTimeout(360, TimeUnit.SECONDS)
+            .addInterceptor(NetworkLoggingInterceptor("DashScope"))
             .apply {
                 if (BuildConfig.DEBUG) {
                     addInterceptor(HttpLoggingInterceptor().apply {
                         level = HttpLoggingInterceptor.Level.BODY
+                        redactHeader("Authorization")
+                        redactHeader("X-API-Key")
                     })
                 }
             }
@@ -79,10 +85,13 @@ class GenBrushApp : Application() {
             .writeTimeout(300, TimeUnit.SECONDS)
             .sslSocketFactory(sslContext.socketFactory, trustAllCerts[0])
             .hostnameVerifier { _, _ -> true }
+            .addInterceptor(NetworkLoggingInterceptor("SD WebUI"))
             .apply {
                 if (BuildConfig.DEBUG) {
                     addInterceptor(HttpLoggingInterceptor().apply {
                         level = HttpLoggingInterceptor.Level.BODY
+                        redactHeader("Authorization")
+                        redactHeader("X-API-Key")
                     })
                 }
             }

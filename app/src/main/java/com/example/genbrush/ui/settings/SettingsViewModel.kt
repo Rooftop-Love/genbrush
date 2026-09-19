@@ -52,6 +52,7 @@ data class SettingsState(
     // 数据迁移状态
     val isMigrating: Boolean = false,
     val migrationMessage: String? = null,
+    val isExportingLogs: Boolean = false,
 
     // 模型管理子页面
     val showModelManagement: Boolean = false,
@@ -253,6 +254,10 @@ class SettingsViewModel(
 
     fun setMigrating(migrating: Boolean) {
         _state.update { it.copy(isMigrating = migrating) }
+    }
+
+    fun setExportingLogs(exporting: Boolean) {
+        _state.update { it.copy(isExportingLogs = exporting) }
     }
 
     fun save() {

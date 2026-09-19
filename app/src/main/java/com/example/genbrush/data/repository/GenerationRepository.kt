@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
+import com.example.genbrush.data.local.AppLogStore
 import com.example.genbrush.data.local.ImageEntry
 import com.example.genbrush.data.local.ImageStore
 import com.example.genbrush.data.local.PreferencesManager
@@ -21,6 +22,7 @@ import com.example.genbrush.data.remote.model.TaskParameters
 import com.example.genbrush.data.remote.model.TaskSubmitRequest
 import com.example.genbrush.data.remote.model.isQwenImage3Model
 import com.example.genbrush.data.remote.model.isWanModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -37,10 +39,35 @@ class GenerationRepository(
         model: String,
         size: String
     ): Result<ImageEntry> {
-        return when (prefs.backend) {
-            PreferencesManager.BACKEND_SD_WEBUI -> generateWithSdTxt2Img(prompt, negativePrompt, size)
-            else -> generateWithDashScope(prompt, negativePrompt, model, size)
+        val backend = prefs.backend
+        AppLogStore.info(
+            "Generation start type=text_to_image backend=$backend model=$model size=$size " +
+                "promptChars=${prompt.length} negativePromptChars=${negativePrompt.length}"
+        )
+        val result = try {
+            when (backend) {
+                PreferencesManager.BACKEND_SD_WEBUI -> generateWithSdTxt2Img(prompt, negativePrompt, size)
+                else -> generateWithDashScope(prompt, negativePrompt, model, size)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
         }
+        result
+            .onSuccess {
+                AppLogStore.info(
+                    "Generation success type=text_to_image backend=$backend model=${it.model} " +
+                        "file=${it.fileName}"
+                )
+            }
+            .onFailure {
+                AppLogStore.error(
+                    "Generation failed type=text_to_image backend=$backend model=$model size=$size: ${it.message}",
+                    it
+                )
+            }
+        return result
     }
 
     suspend fun generateImageEdit(
@@ -50,10 +77,34 @@ class GenerationRepository(
         size: String,
         context: Context
     ): Result<ImageEntry> {
-        return when (prefs.backend) {
-            PreferencesManager.BACKEND_SD_WEBUI -> generateWithSdImg2Img(imageUri, prompt, size, context)
-            else -> generateImageEditDashScope(imageUri, prompt, model, size, context)
+        val backend = prefs.backend
+        AppLogStore.info(
+            "Generation start type=image_edit backend=$backend model=$model size=$size " +
+                "promptChars=${prompt.length} imageScheme=${imageUri.scheme.orEmpty()}"
+        )
+        val result = try {
+            when (backend) {
+                PreferencesManager.BACKEND_SD_WEBUI -> generateWithSdImg2Img(imageUri, prompt, size, context)
+                else -> generateImageEditDashScope(imageUri, prompt, model, size, context)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure(e)
         }
+        result
+            .onSuccess {
+                AppLogStore.info(
+                    "Generation success type=image_edit backend=$backend model=${it.model} file=${it.fileName}"
+                )
+            }
+            .onFailure {
+                AppLogStore.error(
+                    "Generation failed type=image_edit backend=$backend model=$model size=$size: ${it.message}",
+                    it
+                )
+            }
+        return result
     }
 
     // ==================== SD WebUI Backend ====================

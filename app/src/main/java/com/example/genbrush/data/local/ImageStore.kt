@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import com.example.genbrush.data.local.db.AppDatabase
 import com.example.genbrush.data.local.db.ImageDao
 import com.example.genbrush.data.local.db.ImageEntity
+import com.example.genbrush.data.network.NetworkLoggingInterceptor
 import com.example.genbrush.data.network.executeCancellable
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -44,6 +45,7 @@ class ImageStore(private val context: Context) {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(300, TimeUnit.SECONDS)
         .callTimeout(300, TimeUnit.SECONDS)
+        .addInterceptor(NetworkLoggingInterceptor("ImageDownload"))
         .build()
     private val imageDir: File
         get() = File(context.filesDir, "generated_images").also { it.mkdirs() }

@@ -61,6 +61,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.genbrush.data.local.AppLogStore
 import com.example.genbrush.data.local.DataMigrationManager
 import com.example.genbrush.data.local.PreferencesManager
 import com.example.genbrush.ui.components.ModelSelector
@@ -342,6 +343,28 @@ fun SettingsScreen(
         }
     }
 
+    val logExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) {
+            viewModel.setExportingLogs(true)
+            viewModel.setMigrationMessage(null)
+            scope.launch {
+                try {
+                    AppLogStore.info("Recent logs export requested")
+                    val outputStream = context.contentResolver.openOutputStream(uri)
+                        ?: throw IllegalStateException("Unable to open output file")
+                    AppLogStore.exportRecent(outputStream)
+                    viewModel.setMigrationMessage(s.logExportSuccess)
+                } catch (e: Exception) {
+                    viewModel.setMigrationMessage(s.migrationError + (e.message ?: "Unknown"))
+                } finally {
+                    viewModel.setExportingLogs(false)
+                }
+            }
+        }
+    }
+
     LaunchedEffect(state.migrationMessage) {
         state.migrationMessage?.let { snackbarHostState.showSnackbar(it); viewModel.setMigrationMessage(null) }
     }
@@ -587,6 +610,18 @@ fun SettingsScreen(
                     ) {
                         Text(s.migrationImport)
                     }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { logExportLauncher.launch("GenBrush_logs.txt") },
+                    enabled = !state.isMigrating && !state.isExportingLogs,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (state.isExportingLogs) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Text(s.logExport)
                 }
             }
 
