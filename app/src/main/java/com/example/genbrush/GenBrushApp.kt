@@ -13,6 +13,8 @@ import com.example.genbrush.data.local.ImageStore
 import com.example.genbrush.data.local.PreferencesManager
 import com.example.genbrush.data.network.NetworkLoggingInterceptor
 import com.example.genbrush.data.provider.ProviderRegistry
+import com.example.genbrush.data.provider.agnes.AgnesApi
+import com.example.genbrush.data.provider.agnes.AgnesProvider
 import com.example.genbrush.data.provider.dashscope.DashScopeApi
 import com.example.genbrush.data.provider.dashscope.DashScopeProvider
 import com.example.genbrush.data.repository.GenerationRepository
@@ -49,11 +51,11 @@ class GenBrushApp : Application() {
 
         val okHttpClient = OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
-            // DashScope 的同步图像生成可能超过一分钟，避免被客户端提前判定为网络异常。
+            // 同步图像生成（如 DashScope 或 Agnes 4K 档位）可能超过一分钟，避免客户端提前判定超时。
             .readTimeout(300, TimeUnit.SECONDS)
             .writeTimeout(300, TimeUnit.SECONDS)
             .callTimeout(360, TimeUnit.SECONDS)
-            .addInterceptor(NetworkLoggingInterceptor("DashScope"))
+            .addInterceptor(NetworkLoggingInterceptor())
             .apply {
                 if (BuildConfig.DEBUG) {
                     addInterceptor(HttpLoggingInterceptor().apply {
@@ -71,7 +73,8 @@ class GenBrushApp : Application() {
         // 图像生成提供商注册表：新增提供商时在这里构造并注册
         providerRegistry = ProviderRegistry(
             listOf(
-                DashScopeProvider(DashScopeApi(okHttpClient, gson))
+                DashScopeProvider(DashScopeApi(okHttpClient, gson)),
+                AgnesProvider(AgnesApi(okHttpClient, gson))
             )
         )
 

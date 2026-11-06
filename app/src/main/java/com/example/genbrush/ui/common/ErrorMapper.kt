@@ -1,7 +1,7 @@
-﻿package com.example.genbrush.ui.common
+package com.example.genbrush.ui.common
 
 import com.example.genbrush.data.local.PreferencesManager
-import com.example.genbrush.data.provider.dashscope.DashScopeException
+import com.example.genbrush.data.provider.ProviderException
 import com.example.genbrush.ui.localization.AppStrings
 import com.example.genbrush.ui.localization.resolveAppStrings
 
@@ -11,8 +11,11 @@ fun mapError(e: Throwable): String {
 }
 
 fun mapError(e: Throwable, s: AppStrings): String {
-    if (e is DashScopeException) {
-        return "[${ e.code }] ${e.message}"
+    if (e is ProviderException) {
+        if (e.isContentSafety) {
+            return s.errContentSafety
+        }
+        return "[${e.code}] ${e.message}"
     }
 
     val msg = e.message ?: s.errUnknown

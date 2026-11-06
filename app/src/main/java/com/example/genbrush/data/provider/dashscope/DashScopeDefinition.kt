@@ -41,7 +41,9 @@ object DashScopeDefinition {
         defaultModel = "qwen-image-2.0-pro",
         presetGenerationModels = PRESET_GENERATION_MODELS,
         presetEditModels = PRESET_EDIT_MODELS,
-        supportsImageEdit = true
+        supportsImageEdit = true,
+        apiKeyHintZh = "请输入阿里云百炼平台的 DashScope API Key。",
+        apiKeyHintEn = "Enter your DashScope API key from Alibaba Cloud console."
     )
 
     /**

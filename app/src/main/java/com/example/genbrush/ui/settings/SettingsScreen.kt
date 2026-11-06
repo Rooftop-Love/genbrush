@@ -302,23 +302,25 @@ private fun ModelManagementPage(
                 )
             }
 
-            // 编辑模型
-            SettingsSectionCard(
-                title = s.sectionEditModels,
-                expanded = true,
-                onToggle = {}
-            ) {
-                ModelListSection(
-                    presetModels = state.presetEditModels,
-                    disabledModels = state.disabledEditModels,
-                    customModels = state.customEditModels,
-                    customModelInput = state.customEditModelInput,
-                    onCustomInputChanged = viewModel::updateCustomEditModelInput,
-                    onTogglePreset = viewModel::toggleEditModel,
-                    onAddCustom = viewModel::addCustomEditModel,
-                    onRemoveCustom = viewModel::removeCustomEditModel,
-                    s = s
-                )
+            // 编辑模型（仅当前提供商支持图像编辑时显示）
+            if (state.supportsImageEdit) {
+                SettingsSectionCard(
+                    title = s.sectionEditModels,
+                    expanded = true,
+                    onToggle = {}
+                ) {
+                    ModelListSection(
+                        presetModels = state.presetEditModels,
+                        disabledModels = state.disabledEditModels,
+                        customModels = state.customEditModels,
+                        customModelInput = state.customEditModelInput,
+                        onCustomInputChanged = viewModel::updateCustomEditModelInput,
+                        onTogglePreset = viewModel::toggleEditModel,
+                        onAddCustom = viewModel::addCustomEditModel,
+                        onRemoveCustom = viewModel::removeCustomEditModel,
+                        s = s
+                    )
+                }
             }
 
             // 错误提示
@@ -480,7 +482,14 @@ fun SettingsScreen(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                Text(s.settingsApiKeyHint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val currentProvider = state.providers.firstOrNull { it.id == state.providerId }
+                val apiKeyHint = currentProvider?.apiKeyHint(state.language)?.ifBlank { null }
+                    ?: s.settingsApiKeyHint
+                Text(
+                    apiKeyHint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             // 模型管理入口（二级菜单）

@@ -7,11 +7,12 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class NetworkLoggingInterceptor(
-    private val source: String
+    private val source: String? = null
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
+        val label = source ?: request.url.host
         val safeUrl = request.url.newBuilder()
             .query(null)
             .fragment(null)
@@ -19,25 +20,26 @@ class NetworkLoggingInterceptor(
             .toString()
         val startedAt = System.nanoTime()
 
-        AppLogStore.http("$source -> ${request.method} $safeUrl")
+        AppLogStore.http("$label -> ${request.method} $safeUrl")
 
         return try {
             val response = chain.proceed(request)
             val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
             AppLogStore.http(
-                "$source <- HTTP ${response.code} ${request.method} $safeUrl (${elapsedMs}ms)"
+                "$label <- HTTP ${response.code} ${request.method} $safeUrl (${elapsedMs}ms)"
             )
             response
         } catch (e: IOException) {
-            logFailure(request.method, safeUrl, startedAt, e)
+            logFailure(label, request.method, safeUrl, startedAt, e)
             throw e
         } catch (e: RuntimeException) {
-            logFailure(request.method, safeUrl, startedAt, e)
+            logFailure(label, request.method, safeUrl, startedAt, e)
             throw e
         }
     }
 
     private fun logFailure(
+        label: String,
         method: String,
         safeUrl: String,
         startedAt: Long,
@@ -45,7 +47,7 @@ class NetworkLoggingInterceptor(
     ) {
         val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
         AppLogStore.error(
-            "$source !! ${throwable.javaClass.simpleName} $method $safeUrl (${elapsedMs}ms): ${throwable.message}",
+            "$label !! ${throwable.javaClass.simpleName} $method $safeUrl (${elapsedMs}ms): ${throwable.message}",
             throwable
         )
     }

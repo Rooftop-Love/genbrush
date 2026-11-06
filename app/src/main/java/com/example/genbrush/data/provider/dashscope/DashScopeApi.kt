@@ -1,6 +1,7 @@
-﻿package com.example.genbrush.data.provider.dashscope
+package com.example.genbrush.data.provider.dashscope
 
 import com.example.genbrush.data.network.executeCancellable
+import com.example.genbrush.data.provider.ProviderException
 import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -181,4 +182,4 @@ class DashScopeApi(
     }
 }
 
-class DashScopeException(val code: String, override val message: String) : Exception(message)
+class DashScopeException(code: String, message: String) : ProviderException(code, message)

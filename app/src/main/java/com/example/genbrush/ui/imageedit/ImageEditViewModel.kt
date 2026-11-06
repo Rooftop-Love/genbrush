@@ -19,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
@@ -28,6 +29,7 @@ data class ImageEditState(
     val prompt: String = "",
     val selectedModel: String = "",
     val selectedSize: String = PreferencesManager.DEFAULT_SIZE,
+    val supportsImageEdit: Boolean = true,
     val isGenerating: Boolean = false,
     val resultImageFile: File? = null,
     val resultPrompt: String = "",
@@ -50,21 +52,40 @@ class ImageEditViewModel(
     private var timerJob: Job? = null
 
     init {
-        refreshModels()
+        refreshModels(applyDefaults = true)
+        // 设置页保存后（提供商/模型/尺寸偏好变化）立即联动刷新，不依赖页面重建或生命周期时机
+        viewModelScope.launch {
+            prefs.configVersion.drop(1).collect { refreshModels(applyDefaults = true) }
+        }
     }
 
-    fun refreshModels() {
+    fun refreshModels(applyDefaults: Boolean = false) {
         val provider = registry.resolve(prefs.providerId)
+        val definition = provider.definition
+        val providerId = definition.id
         val models = buildAvailableModels(
-            provider.definition.presetEditModels,
-            prefs.disabledEditModels,
-            prefs.customEditModels
+            definition.presetEditModels,
+            prefs.disabledEditModels(providerId),
+            prefs.customEditModels(providerId)
         )
-        val selectedModel = models.firstOrNull() ?: ""
+        val previousModel = _state.value.selectedModel
+        val defaultModel = prefs.defaultModel(providerId, definition.defaultModel)
+        val selectedModel = when {
+            !applyDefaults && previousModel in models -> previousModel
+            defaultModel in models -> defaultModel
+            previousModel in models -> previousModel
+            definition.defaultModel in models -> definition.defaultModel
+            else -> models.firstOrNull() ?: previousModel
+        }
         val sizes = provider.supportedSizes(selectedModel)
-        val safeSize = ensureSupportedSize(prefs.defaultSize, sizes)
+        val safeSize = if (!applyDefaults && _state.value.selectedSize in sizes.map { it.value }) {
+            _state.value.selectedSize
+        } else {
+            ensureSupportedSize(prefs.defaultSize(providerId), sizes)
+        }
         _state.update {
             it.copy(
+                supportsImageEdit = definition.supportsImageEdit,
                 availableModels = models,
                 selectedModel = selectedModel,
                 availableSizes = sizes,
@@ -121,7 +142,7 @@ class ImageEditViewModel(
 
     fun generate(context: Context) {
         val currentState = _state.value
-        if (currentState.isGenerating) return
+        if (currentState.isGenerating || !currentState.supportsImageEdit) return
         val s = resolveAppStrings(prefs.language)
         if (currentState.sourceImageUri == null) {
             _state.update { it.copy(error = s.errSelectImage) }

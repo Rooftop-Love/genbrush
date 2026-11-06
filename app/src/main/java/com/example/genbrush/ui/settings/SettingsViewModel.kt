@@ -6,6 +6,7 @@ import com.example.genbrush.data.local.PreferencesManager
 import com.example.genbrush.data.provider.ProviderDefinition
 import com.example.genbrush.data.provider.ProviderRegistry
 import com.example.genbrush.data.provider.SizeOption
+import com.example.genbrush.ui.components.buildAvailableModels
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +33,7 @@ data class SettingsState(
     val providerId: String = PreferencesManager.DEFAULT_PROVIDER_ID,
     // 提供商选择器数据（来自 ProviderRegistry）
     val providers: List<ProviderDefinition> = emptyList(),
+    val supportsImageEdit: Boolean = true,
     val saveSuccess: Boolean = false,
 
     // 模型管理（预置列表来自当前提供商 definition）
@@ -107,21 +109,7 @@ class SettingsViewModel(
 
     fun selectProvider(providerId: String) {
         if (providerId == _state.value.providerId) return
-        val definition = _state.value.providers.firstOrNull { it.id == providerId } ?: return
-        val sizes = registry.resolve(providerId).supportedSizes(_state.value.defaultModel)
-        val safeSize = ensureSupportedSize(_state.value.defaultSize, sizes)
-        _state.update {
-            it.copy(
-                providerId = providerId,
-                presetGenerationModels = definition.presetGenerationModels,
-                presetEditModels = definition.presetEditModels,
-                defaultModel = definition.defaultModel.takeIf { m -> m.isNotEmpty() } ?: it.defaultModel,
-                apiKey = prefs.providerApiKey(providerId),
-                availableSizes = sizes,
-                defaultSize = safeSize,
-                saveSuccess = false
-            )
-        }
+        applyProviderState(providerId, markUnsaved = true)
     }
 
     fun updateCustomGenModelInput(value: String) {
@@ -136,7 +124,7 @@ class SettingsViewModel(
         _state.update { state ->
             val disabled = state.disabledGenerationModels.toMutableSet()
             if (model in disabled) disabled.remove(model) else disabled.add(model)
-            state.copy(disabledGenerationModels = disabled, saveSuccess = false)
+            syncDefaultModelWithAvailable(state.copy(disabledGenerationModels = disabled, saveSuccess = false))
         }
     }
 
@@ -160,11 +148,13 @@ class SettingsViewModel(
             return
         }
         _state.update {
-            it.copy(
-                customGenerationModels = it.customGenerationModels + name,
-                customGenModelInput = "",
-                saveSuccess = false,
-                modelManageError = null
+            syncDefaultModelWithAvailable(
+                it.copy(
+                    customGenerationModels = it.customGenerationModels + name,
+                    customGenModelInput = "",
+                    saveSuccess = false,
+                    modelManageError = null
+                )
             )
         }
     }
@@ -192,9 +182,11 @@ class SettingsViewModel(
 
     fun removeCustomGenerationModel(model: String) {
         _state.update {
-            it.copy(
-                customGenerationModels = it.customGenerationModels - model,
-                saveSuccess = false
+            syncDefaultModelWithAvailable(
+                it.copy(
+                    customGenerationModels = it.customGenerationModels - model,
+                    saveSuccess = false
+                )
             )
         }
     }
@@ -234,39 +226,84 @@ class SettingsViewModel(
 
     fun save() {
         val state = _state.value
-        prefs.providerId = state.providerId
-        prefs.setProviderApiKey(state.providerId, state.apiKey)
-        prefs.defaultModel = state.defaultModel
-        prefs.defaultSize = state.defaultSize
-        prefs.disabledGenerationModels = state.disabledGenerationModels
-        prefs.disabledEditModels = state.disabledEditModels
-        prefs.customGenerationModels = state.customGenerationModels
-        prefs.customEditModels = state.customEditModels
+        val providerId = state.providerId
+        prefs.providerId = providerId
+        prefs.setProviderApiKey(providerId, state.apiKey)
+        prefs.setDefaultModel(providerId, state.defaultModel)
+        prefs.setDefaultSize(providerId, state.defaultSize)
+        prefs.setDisabledGenerationModels(providerId, state.disabledGenerationModels)
+        prefs.setDisabledEditModels(providerId, state.disabledEditModels)
+        prefs.setCustomGenerationModels(providerId, state.customGenerationModels)
+        prefs.setCustomEditModels(providerId, state.customEditModels)
         _state.update { it.copy(saveSuccess = true) }
     }
 
     private fun load() {
-        val providerId = prefs.providerId
-        val definition = registry.resolve(providerId).definition
-        val sizes = registry.resolve(providerId).supportedSizes(prefs.defaultModel)
-        val safeSize = ensureSupportedSize(prefs.defaultSize, sizes)
+        applyProviderState(prefs.providerId, markUnsaved = false)
+    }
+
+    /**
+     * 按指定 providerId 加载该提供商专属的密钥、模型开关、自定义模型及默认模型/尺寸，
+     * 并以新解析出的默认模型计算可用尺寸档位。
+     */
+    private fun applyProviderState(requestedProviderId: String, markUnsaved: Boolean) {
+        val provider = registry.resolve(requestedProviderId)
+        val definition = provider.definition
+        val resolvedId = definition.id
+        val disabledGen = prefs.disabledGenerationModels(resolvedId)
+        val disabledEdit = prefs.disabledEditModels(resolvedId)
+        val customGen = prefs.customGenerationModels(resolvedId)
+        val customEdit = prefs.customEditModels(resolvedId)
+        val configuredGenModels = buildAvailableModels(
+            definition.presetGenerationModels,
+            disabledGen,
+            customGen
+        )
+        val savedDefaultModel = prefs.defaultModel(resolvedId, definition.defaultModel)
+        val effectiveDefaultModel = when {
+            savedDefaultModel in configuredGenModels -> savedDefaultModel
+            definition.defaultModel in configuredGenModels -> definition.defaultModel
+            else -> configuredGenModels.firstOrNull() ?: definition.defaultModel
+        }
+        val sizes = provider.supportedSizes(effectiveDefaultModel)
+        val safeSize = ensureSupportedSize(prefs.defaultSize(resolvedId), sizes)
+
         _state.update {
             it.copy(
-                apiKey = prefs.providerApiKey(providerId),
-                defaultModel = prefs.defaultModel,
+                apiKey = prefs.providerApiKey(resolvedId),
+                defaultModel = effectiveDefaultModel,
                 defaultSize = safeSize,
                 language = prefs.language,
-                providerId = providerId,
-                providers = registry.all().map { provider -> provider.definition },
+                providerId = resolvedId,
+                providers = registry.all().map { p -> p.definition },
+                supportsImageEdit = definition.supportsImageEdit,
                 presetGenerationModels = definition.presetGenerationModels,
                 presetEditModels = definition.presetEditModels,
-                disabledGenerationModels = prefs.disabledGenerationModels,
-                disabledEditModels = prefs.disabledEditModels,
-                customGenerationModels = prefs.customGenerationModels,
-                customEditModels = prefs.customEditModels,
-                availableSizes = sizes
+                disabledGenerationModels = disabledGen,
+                disabledEditModels = disabledEdit,
+                customGenerationModels = customGen,
+                customEditModels = customEdit,
+                availableSizes = sizes,
+                saveSuccess = if (markUnsaved) false else it.saveSuccess
             )
         }
+    }
+
+    private fun syncDefaultModelWithAvailable(state: SettingsState): SettingsState {
+        val provider = registry.resolve(state.providerId)
+        val configuredModels = buildAvailableModels(
+            state.presetGenerationModels,
+            state.disabledGenerationModels,
+            state.customGenerationModels
+        )
+        if (configuredModels.isEmpty() || state.defaultModel in configuredModels) {
+            return state
+        }
+        val fallbackModel = provider.definition.defaultModel.takeIf { it in configuredModels }
+            ?: configuredModels.first()
+        val sizes = provider.supportedSizes(fallbackModel)
+        val safeSize = ensureSupportedSize(state.defaultSize, sizes)
+        return state.copy(defaultModel = fallbackModel, availableSizes = sizes, defaultSize = safeSize)
     }
 
     /**

@@ -1,5 +1,7 @@
 package com.example.genbrush
 
+import com.example.genbrush.data.provider.ProviderException
+import com.example.genbrush.data.provider.agnes.AgnesException
 import com.example.genbrush.data.provider.dashscope.DashScopeException
 import com.example.genbrush.ui.common.mapError
 import com.example.genbrush.ui.localization.AppStrings
@@ -49,6 +51,22 @@ class ErrorMapperTest {
         val result = mapError(ex, AppStrings.ZH)
 
         assertEquals("[InternalError] An internal server error occurred", result)
+    }
+
+    @Test
+    fun `ProviderException 标记 isContentSafety 时应映射为内容安全提示`() {
+        val ex = ProviderException("451", "blocked by moderation", isContentSafety = true)
+        val result = mapError(ex, AppStrings.ZH)
+
+        assertEquals(AppStrings.ZH.errContentSafety, result)
+    }
+
+    @Test
+    fun `AgnesException 含内容安全关键词应映射为内容安全提示`() {
+        val ex = AgnesException("content_policy_violation", "Your request was rejected as a result of our content policy.")
+        val result = mapError(ex, AppStrings.ZH)
+
+        assertEquals(AppStrings.ZH.errContentSafety, result)
     }
 
     @Test

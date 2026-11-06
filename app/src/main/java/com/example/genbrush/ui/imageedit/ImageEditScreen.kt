@@ -184,7 +184,7 @@ fun ImageEditScreen(viewModel: ImageEditViewModel) {
 
             Button(
                 onClick = { viewModel.generate(context) },
-                enabled = !state.isGenerating && state.sourceImageUri != null && state.prompt.isNotBlank(),
+                enabled = state.supportsImageEdit && !state.isGenerating && state.sourceImageUri != null && state.prompt.isNotBlank(),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(s.editButton)

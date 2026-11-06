@@ -23,7 +23,7 @@ data class ImageEditRequest(
 /** provider 返回的生成结果：远端 URL 或原始图片字节 */
 sealed interface ProviderImage {
     data class Remote(val url: String) : ProviderImage
-    data class Raw(val bytes: ByteArray) {
+    data class Raw(val bytes: ByteArray) : ProviderImage {
         override fun equals(other: Any?) = other is Raw && bytes.contentEquals(other.bytes)
         override fun hashCode() = bytes.contentHashCode()
     }
@@ -58,3 +58,13 @@ interface ImageProvider {
 
 /** 调用提供商 API 所需的凭据。以后接入需要 baseUrl 等配置的提供商时在此扩展。 */
 data class ProviderCredentials(val apiKey: String)
+
+/**
+ * 提供商 API 返回的结构化异常基类。
+ * 上层错误映射（ErrorMapper）仅面向此抽象，不直接耦合具体提供商实现类。
+ */
+open class ProviderException(
+    val code: String,
+    override val message: String,
+    val isContentSafety: Boolean = false
+) : Exception(message)

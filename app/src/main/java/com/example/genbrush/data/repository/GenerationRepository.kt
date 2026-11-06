@@ -93,7 +93,9 @@ class GenerationRepository(
         )
         val result = try {
             val credentials = ProviderCredentials(prefs.providerApiKey(providerId))
-            if (credentials.apiKey.isBlank()) {
+            if (!provider.definition.supportsImageEdit) {
+                Result.failure(Exception("当前提供商不支持图像编辑"))
+            } else if (credentials.apiKey.isBlank()) {
                 Result.failure(Exception("请先在设置中配置 API Key"))
             } else {
                 val imageDataUri = "data:image/jpeg;base64," + encodeImageToBase64(imageUri, context)

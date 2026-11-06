@@ -1,4 +1,4 @@
-﻿package com.example.genbrush.ui.localization
+package com.example.genbrush.ui.localization
 
 data class AppStrings(
     // Bottom navigation

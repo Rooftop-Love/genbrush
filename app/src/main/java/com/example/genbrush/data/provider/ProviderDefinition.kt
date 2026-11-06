@@ -19,12 +19,19 @@ data class ProviderDefinition(
     /** 预置编辑模型 */
     val presetEditModels: List<String>,
     /** 是否支持图生图（不支持时 UI 可隐藏/禁用编辑入口） */
-    val supportsImageEdit: Boolean = true
+    val supportsImageEdit: Boolean = true,
+    /** 设置页 API Key 输入框下方的提示文案（中/英） */
+    val apiKeyHintZh: String = "",
+    val apiKeyHintEn: String = ""
 ) {
-    fun displayName(language: String): String = when {
-        language == LANGUAGE_ZH -> nameZh
-        language == LANGUAGE_EN -> nameEn
-        else -> if (Locale.getDefault().language == "zh") nameZh else nameEn
+    fun displayName(language: String): String = localize(language, nameZh, nameEn)
+
+    fun apiKeyHint(language: String): String = localize(language, apiKeyHintZh, apiKeyHintEn)
+
+    private fun localize(language: String, zh: String, en: String): String = when {
+        language == LANGUAGE_ZH -> zh
+        language == LANGUAGE_EN -> en
+        else -> if (Locale.getDefault().language == "zh") zh else en
     }
 
     companion object {
