@@ -14,8 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: android-actions/setup-android@v3
-
       - name: Restore keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.SIGNING_KEY_STORE_BASE64 }}
