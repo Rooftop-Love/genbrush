@@ -48,3 +48,6 @@ Thumbs.db
 .env
 .env.local
 .antigravitycli/
+
+# WorkBuddy workspace data (agent memory, not for version control)
+.workbuddy/

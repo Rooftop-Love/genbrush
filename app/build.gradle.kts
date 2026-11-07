@@ -22,16 +22,24 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // 签名凭据只从本机 ~/.gradle/gradle.properties、-P 参数或环境变量读取，绝不写入版本库。
+    // keystore 或密码缺失时不创建 signingConfig：debug 构建完全不受影响，release 产出未签名 APK。
     signingConfigs {
+        fun signingSecret(name: String): String? =
+            (project.findProperty(name) as String?)?.takeIf { it.isNotBlank() }
+                ?: System.getenv(name)?.takeIf { it.isNotBlank() }
+
         val storeFile = rootProject.file("genbrush-release.jks")
-        if (storeFile.exists()) {
-            val storePassword = project.findProperty("SIGNING_STORE_PASSWORD") as String?
-                ?: throw GradleException("Keystore exists but SIGNING_STORE_PASSWORD not configured")
+        val storePassword = signingSecret("SIGNING_STORE_PASSWORD")
+        val keyAlias = signingSecret("SIGNING_KEY_ALIAS") ?: "genbrush"
+        val keyPassword = signingSecret("SIGNING_KEY_PASSWORD") ?: storePassword
+
+        if (storeFile.exists() && !storePassword.isNullOrBlank()) {
             create("release") {
                 this.storeFile = storeFile
                 this.storePassword = storePassword
-                keyAlias = project.findProperty("SIGNING_KEY_ALIAS") as String? ?: "genbrush"
-                keyPassword = project.findProperty("SIGNING_KEY_PASSWORD") as String? ?: storePassword
+                this.keyAlias = keyAlias
+                this.keyPassword = keyPassword
             }
         }
     }
