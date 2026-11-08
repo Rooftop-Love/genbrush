@@ -63,6 +63,8 @@ Windows 上使用 `gradlew.bat` 代替 `./gradlew`。Release 构建默认**不�
 - 本地：将 `genbrush-release.jks` 放到项目根目录（已被 `.gitignore` 忽略），在 `~/.gradle/gradle.properties` 中配置 `SIGNING_STORE_PASSWORD`、`SIGNING_KEY_PASSWORD`、`SIGNING_KEY_ALIAS`，或用 `-P` 参数传入。
 - CI：`.github/workflows/release.yml` 在推送 `v*` tag 时，从 GitHub Secrets 读取 `SIGNING_KEY_STORE_BASE64` 恢复 keystore，并注入上述三个密码环境变量；缺少必需 secret 时工作流直接失败，避免发布未签名包。
 
+> **升级提示**：v1.2 使用 2026-11-07 轮换后的新签名证书，与 v1.1 不同，v1.1 用户无法直接覆盖安装，需先卸载旧版再安装。
+
 ## Tech Stack
 
 | 组件 | 技术 |
@@ -75,7 +77,7 @@ Windows 上使用 `gradlew.bat` 代替 `./gradlew`。Release 构建默认**不�
 | 本地存储 | Room 2.7.0 + EncryptedSharedPreferences |
 | 构建 | Gradle 9.4.1（Kotlin DSL）+ AGP 9.2.1 + KSP 2.3.6 |
 | SDK | min 24 / target 36 / compile 36 |
-| 当前版本 | 1.2（versionCode 3） |
+| 当前版本 | 1.2（versionCode 3，2026-11-07 已发布） |
 
 依赖版本集中在 `gradle/libs.versions.toml`，Compose 组件由 BOM 统一管理，不单独指定版本。
 
@@ -92,6 +94,7 @@ app/src/main/java/com/example/genbrush/
 │   │   ├── DataMigrationManager.kt # ZIP 导入导出
 │   │   ├── ImageSaver.kt           # 保存到系统相册（OOM 保护）
 │   │   ├── ImageStore.kt           # 图片文件 + Room 封装 + 旧 JSON 迁移
+│   │   ├── PreferenceKeys.kt       # 配置键名、旧键回退与导入合并规则
 │   │   └── PreferencesManager.kt   # 加密偏好（provider_id 与按提供商命名空间的配置）
 │   ├── network/
 │   │   ├── OkHttpExtensions.kt           # executeCancellable：协程取消时取消 HTTP 请求
@@ -103,7 +106,8 @@ app/src/main/java/com/example/genbrush/
 │   │   ├── dashscope/              # DashScope：qwen 同步 / wan 异步轮询
 │   │   └── agnes/                  # Agnes AI：OpenAI 兼容 images API
 │   └── repository/
-│       └── GenerationRepository.kt # 解析当前提供商、凭据/日志/取消、结果落盘入库
+│       ├── GenerationCore.kt        # 纯 Kotlin 生成编排（可 JVM 单测）
+│       └── GenerationRepository.kt  # Android 依赖适配、输入图编码
 └── ui/
     ├── common/                     # ErrorMapper（错误本地化映射）
     ├── components/                 # ModelSelector、SizeSelector、结果/错误/加载卡片
@@ -128,7 +132,7 @@ app/src/main/java/com/example/genbrush/
 
 ## Testing
 
-`./gradlew test` 运行 JVM 单元测试，当前覆盖 API 数据模型与尺寸参数转换、错误映射、日志脱敏（22 个用例）。`./gradlew connectedAndroidTest` 需要设备或模拟器，目前仅有模板用例。CI（`android.yml`）在 push / PR 时执行 `assembleDebug` + `test` 并上传 debug APK。
+`./gradlew test` 运行 JVM 单元测试，覆盖 API 数据模型与尺寸参数转换、错误映射、日志脱敏、配置迁移与生成编排（7 个测试类 / 46 个用例）。`./gradlew connectedAndroidTest` 需要设备或模拟器，目前仅有模板用例。CI（`android.yml`）在 push / PR 时执行 `assembleDebug` + `test` + `lintDebug` 并上传 debug APK。
 
 ## Contributing
 

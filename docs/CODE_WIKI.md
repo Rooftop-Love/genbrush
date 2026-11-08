@@ -27,11 +27,11 @@
 |---|---|
 | 应用 / 包名 | GenBrush / `com.example.genbrush` |
 | Gradle 模块 | 单模块 `:app` |
-| 当前版本 | 1.2（versionCode 3，尚未打 tag 发布） |
+| 当前版本 | 1.2（versionCode 3，2026-11-07 已发布 GitHub Release） |
 | 语言 / 字节码 | Kotlin 2.2.10 / Java 11 |
 | UI | Jetpack Compose + Material 3（BOM 2026.02.01） |
 | 架构 | MVVM + Repository + Provider 抽象，手写依赖装配 |
-| 源码规模 | 约 7,000 行 Kotlin（52 个 `.kt`，含测试） |
+| 源码规模 | 约 7,800 行 Kotlin（56 个 `.kt`，含测试） |
 | SDK | min 24 / target 36 / compile 36 |
 | 构建 | Gradle 9.4.1（Kotlin DSL）+ AGP 9.2.1 + KSP 2.3.6，JDK 17+ |
 
@@ -48,8 +48,8 @@
 │ GenBrushApp（Application）：OkHttp / Gson / Coil / 依赖装配     │
 │ AppNavigation：NavHost + 底部导航 + savedStateHandle 回传      │
 ├───────────────────────────────┬───────────────────────────────┤
-│ GenerationRepository          │ PreferencesManager            │
-│ 解析 provider、凭据/日志/取消  │ EncryptedSharedPreferences    │
+│ GenerationCore / Repository   │ PreferencesManager            │
+│ 编排(纯 Kotlin) + Android 适配│ EncryptedSharedPreferences    │
 │ 结果落盘入库                  │ configVersion 联动信号        │
 ├───────────────────────────────┼───────────────────────────────┤
 │ ProviderRegistry              │ 本地存储 (data/local/)        │
@@ -78,6 +78,7 @@ app/src/main/java/com/example/genbrush/
 │   │   ├── DataMigrationManager.kt  # ZIP 导入导出
 │   │   ├── ImageSaver.kt            # 保存到系统相册
 │   │   ├── ImageStore.kt            # 图片文件 + Room 封装 + 旧 JSON 迁移
+│   │   ├── PreferenceKeys.kt        # 键名、旧键回退与导入合并规则（纯 Kotlin）
 │   │   └── PreferencesManager.kt    # 加密偏好
 │   ├── network/
 │   │   ├── OkHttpExtensions.kt      # executeCancellable
@@ -89,7 +90,8 @@ app/src/main/java/com/example/genbrush/
 │   │   ├── dashscope/               # Provider / Definition / Api / ApiModels
 │   │   └── agnes/                   # Provider / Definition / Api / ApiModels
 │   └── repository/
-│       └── GenerationRepository.kt
+│       ├── GenerationCore.kt        # 纯 Kotlin 编排，可 JVM 单测
+│       └── GenerationRepository.kt  # Android 依赖适配 + 输入图编码
 └── ui/
     ├── common/ErrorMapper.kt
     ├── components/                  # ModelSelector、SizeSelector、ImageResultCard、
@@ -103,7 +105,7 @@ app/src/main/java/com/example/genbrush/
     └── theme/                       # Color / Theme / Type
 ```
 
-资源：`res/xml/` 下含 `network_security_config.xml`、`file_provider_paths.xml`、`backup_rules.xml`、`data_extraction_rules.xml`；测试位于 `app/src/test/`（5 个 JVM 测试类）与 `app/src/androidTest/`（模板）。
+资源：`res/xml/` 下含 `network_security_config.xml`、`file_provider_paths.xml`、`backup_rules.xml`、`data_extraction_rules.xml`；测试位于 `app/src/test/`（7 个 JVM 测试类 / 46 个用例）与 `app/src/androidTest/`（模板）。Room schema 基线位于 `app/schemas/`。
 
 ## 4. 模块职责
 
@@ -127,12 +129,10 @@ app/src/main/java/com/example/genbrush/
 
 ### 4.3 Repository 层
 
-`GenerationRepository` 是唯一生成入口：
+生成入口拆成两层，编排分支可在 JVM 单测中直接覆盖：
 
-- `generateTextToImage(prompt, negativePrompt, model, size)`：解析当前 provider → 读取该 provider 的 API Key → 校验非空 → 调用 provider → `saveImage`。
-- `generateImageEdit(imageUri, prompt, model, size, context)`：额外校验 `supportsImageEdit`，把输入图片降采样至 2048px、JPEG 85% 压缩后编码为 `data:image/jpeg;base64,...`，编辑路径的 `negativePrompt` 固定为空。
-- `saveImage`：按 `ProviderImage.Remote`（下载 URL）或 `Raw`（写字节）落盘，再构造 `ImageEntry` 入库。
-- 透传 `CancellationException`，其余异常包装为 `Result.failure`；全过程写 `AppLogStore` 的 start / success / failed 日志。
+- `GenerationCore`（纯 Kotlin，无 Android 依赖）：解析当前 provider → 读取该 provider 的 API Key → 校验非空 → 调用 provider → 按 `ProviderImage.Remote`（下载 URL）或 `Raw`（写字节）落盘 → 写 start / success / failed 日志。透传 `CancellationException`，其余异常包装为 `Result.failure`。依赖经 `GenerationPreferences` / `GenerationStorage` / `GenerationLogSink` 三个接口注入。
+- `GenerationRepository`：把 `PreferencesManager`、`ImageStore`、`AppLogStore` 适配成上述接口，并负责 `generateImageEdit` 中把输入图片降采样至 2048px、JPEG 85% 压缩后编码为 `data:image/jpeg;base64,...`（以 suspend lambda 延迟执行，校验不通过就不解码）。编辑路径 `negativePrompt` 固定为空。
 - 另提供相册查询、本地路径、删除、收藏等薄封装。
 
 ### 4.4 本地存储与诊断
@@ -140,10 +140,11 @@ app/src/main/java/com/example/genbrush/
 | 文件 | 职责 |
 |---|---|
 | `ImageStore.kt` | 以 `ImageEntry` DTO 对外；文件存于 `filesDir/generated_images/`；`saveImage` / `saveImageFromUrl` / `saveImageFromBytes`；首次访问时用 `Mutex` 把旧 `metadata.json` 导入 Room 并重命名为 `.bak`；`importEntries` 跳过已存在 id 且要求文件已就位 |
-| `db/AppDatabase.kt` | Room `genbrush.db`，version 1，`exportSchema = false`，单例懒加载 |
+| `db/AppDatabase.kt` | Room `genbrush.db`，version 1，`exportSchema = true`，v1 schema 基线导出到 `app/schemas/`，单例懒加载 |
 | `db/ImageEntity.kt` | `images` 表：`id / fileName / prompt / model / timestamp / type / size / negativePrompt / isFavorite / seed`，`timestamp` 与 `isFavorite` 有索引 |
 | `db/ImageDao.kt` | 仅基础 CRUD 与全量 Flow；收藏/搜索/筛选的组合逻辑放在 ViewModel 层 |
 | `PreferencesManager.kt` | `EncryptedSharedPreferences`（AES256_GCM 主密钥，AES256_SIV 键 / AES256_GCM 值加密）；所有配置按 provider id 命名空间化，兼容旧全局键与 `backend_type`；`configVersion` 在配置写入时自增；`exportAll()` / `applyImported()` 支撑迁移 |
+| `PreferenceKeys.kt` | 纯 Kotlin：按 provider id 生成键名、`resolveRead` 旧全局键回退、`resolveImported` 把备份映射为最终键值、模型列表分隔符规范化；迁移主逻辑集中于此，由 `PreferenceKeysTest` 覆盖 |
 | `ImageSaver.kt` | 保存到系统相册：`inJustDecodeBounds` + 采样防 OOM，Android Q+ 用 MediaStore，低版本用 `insertImage` |
 | `DataMigrationManager.kt` | 导出 ZIP：`settings.json` + `metadata.json` + `images/*`；导入时解压到临时目录、拷贝图片、合并元数据、恢复设置，`finally` 清理临时目录 |
 | `AppLogStore.kt` | 512KB 滚动 `recent.log`，单条上限 4000 字符；脱敏 Authorization Bearer、api_key、access/refresh token；`exportRecent()` 输出带版本与设备信息的快照 |
@@ -189,7 +190,7 @@ app/src/main/java/com/example/genbrush/
 
 ```
 用户输入 → TextToImageViewModel.generate()
-  → GenerationRepository.generateTextToImage()
+  → GenerationRepository.generateTextToImage() → GenerationCore.textToImage()
   → registry.resolve(prefs.providerId) → 校验 providerApiKey()
   → provider.generateTextToImage(credentials, TextToImageRequest)
   → ProviderImage.Remote / Raw
@@ -200,7 +201,7 @@ app/src/main/java/com/example/genbrush/
 
 ### 7.2 取消生成
 
-`stopGeneration()` 取消 `generationJob` → `executeCancellable` 的 `invokeOnCancellation { call.cancel() }` 取消 OkHttp 调用 → `CancellationException` 在 API 与 Repository 层均被显式重抛而非转成失败结果 → ViewModel `catch` 中静默结束，`finally` 停止计时并复位 `isGenerating`。
+`stopGeneration()` 取消 `generationJob` → `executeCancellable` 的 `invokeOnCancellation { call.cancel() }` 取消 OkHttp 调用 → `CancellationException` 在 API、`GenerationCore` 与 Repository 层均被显式重抛而非转成失败结果 → ViewModel `catch` 中静默结束，`finally` 停止计时并复位 `isGenerating`。
 
 ### 7.3 配置联动
 
@@ -212,38 +213,40 @@ app/src/main/java/com/example/genbrush/
 
 ### 7.5 数据迁移与日志导出
 
-导出：`DataMigrationManager.exportData` 生成 ZIP（`settings.json`、`metadata.json`、`images/*`），设置同时包含顶层兼容键与所有 `api_key_*` 等命名空间键。导入：解压到 `cacheDir/import_temp_*` → 拷贝图片（跳过已存在文件）→ `importEntries`（跳过已存在 id）→ `applyImported`（先顶层键，再用命名空间键覆盖）→ 清理临时目录。日志导出由设置页 SAF launcher 调用 `AppLogStore.exportRecent()`。
+导出：`DataMigrationManager.exportData` 生成 ZIP（`settings.json`、`metadata.json`、`images/*`），设置同时包含顶层兼容键与所有 `api_key_*` 等命名空间键。导入：解压到 `cacheDir/import_temp_*` → 拷贝图片（跳过已存在文件）→ `importEntries`（跳过已存在 id）→ `applyImported`（由 `PreferenceKeys.resolveImported` 先计算顶层键映射，再用命名空间键覆盖，一次性写入）→ 清理临时目录。日志导出由设置页 SAF launcher 调用 `AppLogStore.exportRecent()`。
 
 ## 8. 构建、签名与 CI
 
 ```bash
 ./gradlew assembleDebug          # debug APK
 ./gradlew assembleRelease        # release APK（有凭据才签名）
-./gradlew test                   # JVM 单测：5 个测试类 / 22 个用例
+./gradlew test                   # JVM 单测：7 个测试类 / 46 个用例
+./gradlew lintDebug              # Android lint（CI 中执行）
 ./gradlew connectedAndroidTest   # 设备测试（当前仅模板）
 ```
 
 - `settings.gradle.kts` 在非 CI 环境启用阿里云 Maven 镜像；`FAIL_ON_PROJECT_REPOS` 强制集中管理仓库。
 - 依赖版本集中在 `gradle/libs.versions.toml`，Compose 由 BOM 统一；Java 11 兼容；`buildConfig = true`、`compose = true`。
 - **签名**：版本库不含任何凭据。`app/build.gradle.kts` 从 Gradle property 或环境变量读取 `SIGNING_STORE_PASSWORD` / `SIGNING_KEY_PASSWORD` / `SIGNING_KEY_ALIAS`，仅在项目根目录存在 `genbrush-release.jks` 且密码可用时创建 release signing config。缺失时构建不报错，release 输出 `app-release-unsigned.apk`。本地凭据放 `~/.gradle/gradle.properties` 或 `-P`；CI 由 secrets 注入。
-- **CI**：`android.yml` 在 push / PR 执行 `assembleDebug` + `test` 并上传 debug APK；`release.yml` 在 `v*` tag 时校验签名 secrets、恢复 keystore、构建 release 并发布 GitHub Release。当前仓库只有 `v1.1` tag，v1.2 尚未发版。
-- 未配置 lint / ktlint / detekt（`CONTRIBUTING.md` 提到的 `ktlintCheck` 实际不存在）。
+- **CI**：`android.yml` 在 push / PR 执行 `assembleDebug` + `test` + `lintDebug` 并上传 debug APK；`release.yml` 在 `v*` tag 时校验签名 secrets、恢复 keystore、构建 release 并发布 GitHub Release。`v1.1` / `v1.2` tag 均在，v1.2 于 2026-11-07 发布（asset `app-release.apk`，约 14MB，已验证 V2 签名）。
+- **签名证书轮换**：v1.2 使用 2026-11-07 轮换后的新证书，与 v1.1 不同，老用户无法覆盖升级，需卸载重装。
+- CI 已运行 `lintDebug`（error 阻断构建，warning 不阻断）；未配置 ktlint / detekt，`CONTRIBUTING.md` 已改为实际存在的命令。
 
 ## 9. 约定与已知限制
 
-- **约定**：Kotlin DSL + version catalog；Compose 版本不由单个依赖指定；Provider 不碰持久化与 UI；模型族判断与尺寸表归属各 `*Definition`；新增文案需同时补 ZH / EN；不提交密钥、keystore、`local.properties`。
+- **约定**：Kotlin DSL + version catalog；Compose 版本不由单个依赖指定；Provider 不碰持久化与 UI；模型族判断与尺寸表归属各 `*Definition`；新增文案需同时补 ZH / EN；不提交密钥、keystore、`local.properties`；Room 改表结构需提交 `app/schemas/` 新版本并编写 `Migration`。
 - Release **不启用 R8 混淆**，`proguard-rules.pro` 保留但未激活。
-- `network_security_config.xml` 全局允许明文 HTTP，注释说明是为将来的本地端点类 provider 预留；当前两个 provider 均为 HTTPS，属于可收紧的敞口。
+- `network_security_config.xml` 的 `base-config` 默认禁止明文 HTTP（两家 provider 均 HTTPS）；将来接入局域网本地端点时应另加 `domain-config` 白名单，不要重新放开全局明文。
 - `data_extraction_rules.xml` 仍是模板（含 TODO）；`AndroidManifest` 中 `allowBackup="false"`，因此云备份实际关闭。
-- Room 为 version 1 且 `exportSchema = false`：字段一次性预留到位避免了迁移，但后续改表结构没有 schema 基线。
+- Room 为 version 1，已开启 `exportSchema = true` 并在 `app/schemas/` 保存 v1 基线；后续改表结构需一并提交新版本 schema 并编写 `Migration`。
 - `androidx.security:security-crypto` 使用 `1.1.0-alpha06`（alpha 版本）。
 - 依赖装配为手写 Service Locator，无 DI 框架；`FullImageViewerScreen` 与 `SettingsScreen` 直接使用 repository / `DataMigrationManager`，未走 ViewModel。
 - Agnes AI 与图像编辑路径不支持反向提示词；模型与尺寸表为硬编码，上游 API 变更需手工更新。
-- 测试集中在 API DTO、尺寸参数、错误映射与日志脱敏；Repository、偏好迁移、Room、ViewModel 与 UI 尚无自动化测试。
+- JVM 测试覆盖 API DTO、尺寸参数、错误映射、日志脱敏，以及 `PreferenceKeys` 的配置迁移与 `GenerationCore` 的生成编排；Room、ViewModel 与 UI 仍无自动化测试，`androidTest` 仍是模板。
 
 ## 10. 版本历史
 
 | 版本 | 变化 |
 |---|---|
 | v1.1 及更早 | DashScope + SD WebUI 双后端，LoRA 选择器，`data/remote/` 远程层，`backend_type` 配置 |
-| v1.2（当前代码） | 移除 SD WebUI / LoRA；引入 `ImageProvider` / `ProviderDefinition` / `ProviderRegistry`；新增 Agnes AI；配置按提供商命名空间化并兼容旧键；新增诊断日志、可取消生成、qwen-image-3.0 支持、发布签名与 CI；版本号 1.2 / versionCode 3，尚未打 tag 发布 |
+| v1.2（当前代码） | 移除 SD WebUI / LoRA；引入 `ImageProvider` / `ProviderDefinition` / `ProviderRegistry`；新增 Agnes AI；配置按提供商命名空间化并兼容旧键；新增诊断日志、可取消生成、qwen-image-3.0 支持、发布签名与 CI；版本号 1.2 / versionCode 3，2026-11-07 打 tag 并发布 GitHub Release（签名证书已轮换） |

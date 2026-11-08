@@ -8,75 +8,63 @@ import com.example.genbrush.data.local.AppLogStore
 import com.example.genbrush.data.local.ImageEntry
 import com.example.genbrush.data.local.ImageStore
 import com.example.genbrush.data.local.PreferencesManager
-import com.example.genbrush.data.provider.ImageEditRequest
-import com.example.genbrush.data.provider.ProviderCredentials
-import com.example.genbrush.data.provider.ProviderImage
 import com.example.genbrush.data.provider.ProviderRegistry
 import com.example.genbrush.data.provider.TextToImageRequest
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 
 /**
- * 生成入口：按 prefs 中的 provider id 从 [ProviderRegistry] 解析当前提供商并转发请求。
- * 本类只负责编排（凭据、日志、取消）与结果落盘入库；远端调用细节在各 ImageProvider 实现里。
+ * 生成入口：把 Android 侧依赖（图片存储、加密偏好、日志）适配给 [GenerationCore]，
+ * 编排逻辑本身在 Core 中，可脱离设备做单元测试。
  */
 class GenerationRepository(
     private val registry: ProviderRegistry,
     private val imageStore: ImageStore,
     private val prefs: PreferencesManager
-) {
+) : GenerationPreferences {
+
+    override val providerId: String
+        get() = prefs.providerId
+
+    override fun apiKey(providerId: String): String = prefs.providerApiKey(providerId)
+
+    private val storage = object : GenerationStorage {
+        override suspend fun saveFromUrl(url: String, entry: ImageEntry): ImageEntry =
+            imageStore.saveImageFromUrl(url, entry)
+
+        override suspend fun saveFromBytes(bytes: ByteArray, entry: ImageEntry): ImageEntry =
+            imageStore.saveImageFromBytes(bytes, entry)
+    }
+
+    private val log = object : GenerationLogSink {
+        override fun info(message: String) = AppLogStore.info(message)
+
+        override fun error(message: String, throwable: Throwable?) =
+            AppLogStore.error(message, throwable)
+    }
+
+    private val core = GenerationCore(
+        registry = registry,
+        prefs = this,
+        storage = storage,
+        log = log,
+        createFileName = { ImageStore.createFileName(it) }
+    )
+
     suspend fun generateTextToImage(
         prompt: String,
         negativePrompt: String,
         model: String,
         size: String
-    ): Result<ImageEntry> {
-        val provider = registry.resolve(prefs.providerId)
-        val providerId = provider.definition.id
-        AppLogStore.info(
-            "Generation start type=text_to_image provider=$providerId model=$model size=$size " +
-                "promptChars=${prompt.length} negativePromptChars=${negativePrompt.length}"
+    ): Result<ImageEntry> = core.textToImage(
+        TextToImageRequest(
+            prompt = prompt,
+            negativePrompt = negativePrompt,
+            model = model,
+            size = size
         )
-        val result = try {
-            val credentials = ProviderCredentials(prefs.providerApiKey(providerId))
-            if (credentials.apiKey.isBlank()) {
-                Result.failure(Exception("请先在设置中配置 API Key"))
-            } else {
-                provider.generateTextToImage(
-                    credentials,
-                    TextToImageRequest(
-                        prompt = prompt,
-                        negativePrompt = negativePrompt,
-                        model = model,
-                        size = size
-                    )
-                ).fold(
-                    onSuccess = { saveImage(it, prompt, model, size, negativePrompt, "text_to_image") },
-                    onFailure = { Result.failure(it) }
-                )
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-        result
-            .onSuccess {
-                AppLogStore.info(
-                    "Generation success type=text_to_image provider=$providerId model=${it.model} " +
-                        "file=${it.fileName}"
-                )
-            }
-            .onFailure {
-                AppLogStore.error(
-                    "Generation failed type=text_to_image provider=$providerId model=$model size=$size: ${it.message}",
-                    it
-                )
-            }
-        return result
-    }
+    )
 
     suspend fun generateImageEdit(
         imageUri: Uri,
@@ -84,82 +72,13 @@ class GenerationRepository(
         model: String,
         size: String,
         context: Context
-    ): Result<ImageEntry> {
-        val provider = registry.resolve(prefs.providerId)
-        val providerId = provider.definition.id
-        AppLogStore.info(
-            "Generation start type=image_edit provider=$providerId model=$model size=$size " +
-                "promptChars=${prompt.length} imageScheme=${imageUri.scheme.orEmpty()}"
-        )
-        val result = try {
-            val credentials = ProviderCredentials(prefs.providerApiKey(providerId))
-            if (!provider.definition.supportsImageEdit) {
-                Result.failure(Exception("当前提供商不支持图像编辑"))
-            } else if (credentials.apiKey.isBlank()) {
-                Result.failure(Exception("请先在设置中配置 API Key"))
-            } else {
-                val imageDataUri = "data:image/jpeg;base64," + encodeImageToBase64(imageUri, context)
-                provider.generateImageEdit(
-                    credentials,
-                    ImageEditRequest(
-                        prompt = prompt,
-                        negativePrompt = "",
-                        model = model,
-                        size = size,
-                        imageDataUri = imageDataUri
-                    )
-                ).fold(
-                    onSuccess = { saveImage(it, prompt, model, size, "", "image_edit") },
-                    onFailure = { Result.failure(it) }
-                )
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-        result
-            .onSuccess {
-                AppLogStore.info(
-                    "Generation success type=image_edit provider=$providerId model=${it.model} file=${it.fileName}"
-                )
-            }
-            .onFailure {
-                AppLogStore.error(
-                    "Generation failed type=image_edit provider=$providerId model=$model size=$size: ${it.message}",
-                    it
-                )
-            }
-        return result
-    }
-
-    // ==================== 结果落盘入库 ====================
-
-    private suspend fun saveImage(
-        image: ProviderImage,
-        prompt: String,
-        model: String,
-        size: String,
-        negativePrompt: String,
-        type: String
-    ): Result<ImageEntry> = try {
-        val fileName = ImageStore.createFileName(type)
-        val entry = ImageEntry(
-            fileName = fileName,
-            prompt = prompt,
-            model = model,
-            type = type,
-            size = size,
-            negativePrompt = negativePrompt
-        )
-        val saved = when (image) {
-            is ProviderImage.Remote -> imageStore.saveImageFromUrl(image.url, entry)
-            is ProviderImage.Raw -> imageStore.saveImageFromBytes(image.bytes, entry)
-        }
-        Result.success(saved)
-    } catch (e: Exception) {
-        Result.failure(Exception("保存图片失败：${e.message}"))
-    }
+    ): Result<ImageEntry> = core.imageEdit(
+        prompt = prompt,
+        model = model,
+        size = size,
+        imageScheme = imageUri.scheme.orEmpty(),
+        imageDataUri = { "data:image/jpeg;base64," + encodeImageToBase64(imageUri, context) }
+    )
 
     // ==================== 画廊 ====================
 

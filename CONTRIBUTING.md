@@ -21,7 +21,7 @@ Thank you for your interest in contributing! This guide will help you get starte
 - Follow the [Kotlin Coding Conventions](https://kotlinlang.org/docs/coding-conventions.html)
 - Use Kotlin DSL for Gradle scripts
 - Compose functions should be annotated with `@Preview` where applicable
-- Run `./gradlew ktlintCheck` before submitting (if ktlint is configured)
+- Run `./gradlew test lintDebug` before submitting (the same checks CI runs; ktlint/detekt are not configured)
 
 ## Commit Messages
 

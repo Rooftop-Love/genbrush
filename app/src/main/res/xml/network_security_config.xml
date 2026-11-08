@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- 允许 HTTP 明文流量：为将来接入局域网本地端点类提供商（如 ComfyUI）预留 -->
-    <base-config cleartextTrafficPermitted="true">
+    <!-- 默认禁止明文 HTTP：两家已注册提供商（DashScope / Agnes AI）均使用 HTTPS。
+         将来接入局域网本地端点类提供商（如 ComfyUI）时，请另加 domain-config 白名单，
+         只对特定域名或 IP 放行 cleartextTrafficPermitted，不要重新打开 base-config。 -->
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

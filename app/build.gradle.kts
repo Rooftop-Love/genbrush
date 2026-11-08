@@ -63,6 +63,11 @@ android {
     }
 }
 
+// 导出 Room schema 历史到 app/schemas/，作为后续数据库迁移的基线；该目录需随代码提交。
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
