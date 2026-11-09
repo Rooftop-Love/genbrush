@@ -3,13 +3,14 @@ package com.example.genbrush.ui.texttoimage
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.genbrush.data.local.ModelCapability
+import com.example.genbrush.data.local.ModelCatalogRules
+import com.example.genbrush.data.local.ModelSeed
 import com.example.genbrush.data.local.PreferencesManager
-import com.example.genbrush.data.provider.ImageProvider
 import com.example.genbrush.data.provider.ProviderRegistry
 import com.example.genbrush.data.provider.SizeOption
 import com.example.genbrush.ui.common.mapError
 import com.example.genbrush.data.repository.GenerationRepository
-import com.example.genbrush.ui.components.buildAvailableModels
 import com.example.genbrush.ui.localization.resolveAppStrings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -51,9 +52,9 @@ class TextToImageViewModel(
 
     init {
         refreshModels(applyDefaults = true)
-        // 设置页保存后（提供商/模型/尺寸偏好变化）立即联动刷新，不依赖页面重建或生命周期时机
+        // 配置变化后刷新模型清单，但保留本页已选中的模型（除非它已被从清单中关闭）
         viewModelScope.launch {
-            prefs.configVersion.drop(1).collect { refreshModels(applyDefaults = true) }
+            prefs.configVersion.drop(1).collect { refreshModels(applyDefaults = false) }
         }
     }
 
@@ -61,11 +62,15 @@ class TextToImageViewModel(
         val provider = registry.resolve(prefs.providerId)
         val definition = provider.definition
         val providerId = definition.id
-        val models = buildAvailableModels(
-            definition.presetGenerationModels,
-            prefs.disabledGenerationModels(providerId),
-            prefs.customGenerationModels(providerId)
+        val catalog = prefs.modelCatalog(
+            providerId,
+            ModelSeed(
+                generationModels = definition.presetGenerationModels,
+                editModels = definition.presetEditModels,
+                supportsImageEdit = definition.supportsImageEdit
+            )
         )
+        val models = ModelCatalogRules.visibleIds(catalog, ModelCapability.GENERATION)
         val previousModel = _state.value.selectedModel
         val defaultModel = prefs.defaultModel(providerId, definition.defaultModel)
         val selectedModel = when {
@@ -88,25 +93,6 @@ class TextToImageViewModel(
                 availableSizes = sizes,
                 selectedSize = safeSize
             )
-        }
-        maybeFetchRemoteModels(provider)
-    }
-
-    /** 支持在线模型列表的提供商（fetchModels 非 null）用远端列表覆盖预设列表 */
-    private fun maybeFetchRemoteModels(provider: ImageProvider) {
-        viewModelScope.launch {
-            val remote = try {
-                provider.fetchModels()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                null
-            } ?: return@launch
-            if (remote.isEmpty()) return@launch
-            _state.update { it.copy(availableModels = remote) }
-            if (_state.value.selectedModel !in remote) {
-                selectModel(remote.first())
-            }
         }
     }
 

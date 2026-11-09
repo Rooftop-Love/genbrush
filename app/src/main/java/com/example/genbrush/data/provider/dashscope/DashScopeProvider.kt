@@ -41,6 +41,11 @@ class DashScopeProvider(private val api: DashScopeApi) : ImageProvider {
     override fun supportedSizes(model: String?): List<SizeOption> =
         DashScopeDefinition.supportedSizes(model)
 
+    override suspend fun fetchModels(credentials: ProviderCredentials): Result<List<String>> =
+        api.listModels(credentials.apiKey).map { ids ->
+            ids.filter { DashScopeDefinition.isImageModelId(it) }
+        }
+
     // ==================== 同步接口（qwen-image 系列） ====================
 
     private suspend fun generateSync(

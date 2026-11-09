@@ -164,6 +164,58 @@ class PreferencesManager(context: Context) {
         notifyConfigChanged()
     }
 
+    /**
+     * 读取指定提供商的模型清单缓存（模型列表的唯一数据源）。
+     * 首次读取时用内置预设 + 旧版 disabled/custom 配置一次性播种；之后版本升级只补齐新增内置项，
+     * 绝不重置用户已经调过的开关。读取路径上的内部写盘不触发 configVersion，避免信号回环。
+     */
+    fun modelCatalog(providerId: String, seed: ModelSeed): ModelCatalog {
+        val stored = ModelCatalog.decode(prefs.getString(PreferenceKeys.catalogKey(providerId), null))
+        if (stored.models.isEmpty()) {
+            val initial = ModelCatalogRules.buildInitial(
+                seed = seed,
+                disabledGeneration = disabledGenerationModels(providerId),
+                disabledEdit = disabledEditModels(providerId),
+                customGeneration = customGenerationModels(providerId),
+                customEdit = customEditModels(providerId)
+            )
+            writeModelCatalog(providerId, initial)
+            return initial
+        }
+        val upgraded = ModelCatalogRules.ensureSeed(stored, seed)
+        if (upgraded != stored) writeModelCatalog(providerId, upgraded)
+        return upgraded
+    }
+
+    /** 写入模型清单并通知生成页刷新（设置页开关即时生效）。 */
+    fun setModelCatalog(providerId: String, catalog: ModelCatalog) {
+        writeModelCatalog(providerId, catalog)
+        notifyConfigChanged()
+    }
+
+    private fun writeModelCatalog(providerId: String, catalog: ModelCatalog) {
+        val disabledGen = catalog.models
+            .filter { it.supportsGeneration && !it.enabledGeneration && it.source != ModelSource.CUSTOM }
+            .map { it.id }
+        val disabledEdit = catalog.models
+            .filter { it.supportsEdit && !it.enabledEdit && it.source != ModelSource.CUSTOM }
+            .map { it.id }
+        val customGen = catalog.models
+            .filter { it.source == ModelSource.CUSTOM && it.supportsGeneration }
+            .map { it.id }
+        val customEdit = catalog.models
+            .filter { it.source == ModelSource.CUSTOM && it.supportsEdit }
+            .map { it.id }
+        prefs.edit {
+            putString(PreferenceKeys.catalogKey(providerId), catalog.encode())
+            // 同步旧键，保证 ZIP 备份里的顶层兼容键与降级到旧版本时的模型配置仍然正确。
+            putString(PreferenceKeys.disabledGenModelsKey(providerId), PreferenceKeys.joinModels(disabledGen))
+            putString(PreferenceKeys.disabledEditModelsKey(providerId), PreferenceKeys.joinModels(disabledEdit))
+            putString(PreferenceKeys.customGenModelsKey(providerId), PreferenceKeys.joinModels(customGen))
+            putString(PreferenceKeys.customEditModelsKey(providerId), PreferenceKeys.joinModels(customEdit))
+        }
+    }
+
     var defaultModel: String
         get() = defaultModel(providerId)
         set(value) = setDefaultModel(providerId, value)
@@ -202,6 +254,24 @@ class PreferencesManager(context: Context) {
         return PreferenceKeys.parseModels(raw)
     }
 
+    /** 一次性写入设置页的主要配置，只发一次 configVersion 信号，避免生成页被连续刷新多次。 */
+    fun saveProviderSettings(
+        providerId: String,
+        apiKey: String,
+        defaultModel: String,
+        defaultSize: String,
+        language: String
+    ) {
+        prefs.edit {
+            putString(PreferenceKeys.KEY_PROVIDER_ID, providerId)
+            putString(PreferenceKeys.apiKeyKey(providerId), apiKey)
+            putString(PreferenceKeys.defaultModelKey(providerId), defaultModel)
+            putString(PreferenceKeys.defaultSizeKey(providerId), defaultSize)
+            putString(PreferenceKeys.KEY_LANGUAGE, language)
+        }
+        notifyConfigChanged()
+    }
+
     /** 导出所有设置为 Map（用于数据迁移，兼顾旧版单提供商键名与新版多提供商命名空间键名） */
     fun exportAll(): Map<String, String> {
         val currentProvider = providerId
@@ -234,8 +304,13 @@ class PreferencesManager(context: Context) {
     fun applyImported(settings: Map<String, String>) {
         val resolved = PreferenceKeys.resolveImported(settings, providerId)
         if (resolved.isEmpty()) return
+        val hasCatalog = PreferenceKeys.hasCatalogKeys(settings)
+        val activeProviderId = settings[PreferenceKeys.KEY_PROVIDER_ID]?.takeIf { it.isNotEmpty() }
+            ?: providerId
         prefs.edit {
             resolved.forEach { (key, value) -> putString(key, value) }
+            // 旧版备份不含清单：清掉当前缓存，让下次读取按导入的 disabled/custom 键重新播种。
+            if (!hasCatalog) remove(PreferenceKeys.catalogKey(activeProviderId))
         }
         notifyConfigChanged()
     }

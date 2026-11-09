@@ -58,16 +58,3 @@ fun ModelSelector(
         }
     }
 }
-
-/**
- * 根据用户配置计算可用的模型列表
- * = 启用的预置模型 + 自定义模型（预置列表由当前提供商的 definition 提供）
- */
-fun buildAvailableModels(
-    presetModels: List<String>,
-    disabledModels: Set<String>,
-    customModels: List<String>
-): List<String> {
-    val enabled = presetModels.filter { it !in disabledModels }
-    return (enabled + customModels).distinct()
-}

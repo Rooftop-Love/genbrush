@@ -1,6 +1,7 @@
 package com.example.genbrush.data.provider.dashscope
 
 import com.example.genbrush.data.network.executeCancellable
+import com.example.genbrush.data.provider.OpenAIModelListApi
 import com.example.genbrush.data.provider.ProviderException
 import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
@@ -16,6 +17,11 @@ class DashScopeApi(
     private val client: OkHttpClient,
     private val gson: Gson
 ) {
+    private val modelListApi = OpenAIModelListApi(client, gson, MODELS_ENDPOINT)
+
+    /** 手动刷新模型清单时调用；生成流程不触发。 */
+    suspend fun listModels(apiKey: String): Result<List<String>> = modelListApi.listModels(apiKey)
+
     suspend fun generateImage(
         apiKey: String,
         request: GenerationRequest
@@ -179,6 +185,9 @@ class DashScopeApi(
             "https://dashscope.aliyuncs.com/api/v1/services/aigc/image-generation/generation"
         const val TASK_ENDPOINT =
             "https://dashscope.aliyuncs.com/api/v1/tasks"
+        /** OpenAI 兼容模式的模型列表端点 */
+        const val MODELS_ENDPOINT =
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/models"
     }
 }
 

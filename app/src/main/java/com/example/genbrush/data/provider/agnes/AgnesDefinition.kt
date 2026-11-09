@@ -31,8 +31,12 @@ object AgnesDefinition {
         presetEditModels = PRESET_EDIT_MODELS,
         supportsImageEdit = true,
         apiKeyHintZh = "请输入 Agnes AI 平台的 API Key（可在 agnes-ai.com 免费创建）。",
-        apiKeyHintEn = "Enter your Agnes AI API key (create one for free at agnes-ai.com)."
+        apiKeyHintEn = "Enter your Agnes AI API key (create one for free at agnes-ai.com).",
+        supportsModelListing = true
     )
+
+    /** 从 GET /models 的全量列表里筛出图像生成模型。 */
+    fun isImageModelId(id: String): Boolean = id.trim().lowercase().startsWith("agnes-image-")
 
     /**
      * 2.5 / 2.1 模型：官方推荐 size 用档位值（1K/2K/3K/4K）+ ratio 传参；

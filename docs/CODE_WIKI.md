@@ -1,6 +1,6 @@
 # GenBrush Code Wiki
 
-> 面向 v1.2 代码状态的结构化代码地图：模块职责、关键类型、数据流、构建与约定。
+> 面向 v1.3 代码状态的结构化代码地图：模块职责、关键类型、数据流、构建与约定。
 >
 > **事实源**：`CLAUDE.md` 描述项目结构与开发约定，`README.md` 面向使用者，本文是详细版。三者冲突时以 `CLAUDE.md` 为准。
 >
@@ -27,11 +27,11 @@
 |---|---|
 | 应用 / 包名 | GenBrush / `com.example.genbrush` |
 | Gradle 模块 | 单模块 `:app` |
-| 当前版本 | 1.2（versionCode 3，2026-11-07 已发布 GitHub Release） |
+| 当前版本 | 1.3（versionCode 4，2026-11-09 发布 GitHub Release `v1.3`） |
 | 语言 / 字节码 | Kotlin 2.2.10 / Java 11 |
 | UI | Jetpack Compose + Material 3（BOM 2026.02.01） |
 | 架构 | MVVM + Repository + Provider 抽象，手写依赖装配 |
-| 源码规模 | 约 7,800 行 Kotlin（56 个 `.kt`，含测试） |
+| 源码规模 | 约 8,400 行 Kotlin（59 个 `.kt`，含测试） |
 | SDK | min 24 / target 36 / compile 36 |
 | 构建 | Gradle 9.4.1（Kotlin DSL）+ AGP 9.2.1 + KSP 2.3.6，JDK 17+ |
 
@@ -78,6 +78,7 @@ app/src/main/java/com/example/genbrush/
 │   │   ├── DataMigrationManager.kt  # ZIP 导入导出
 │   │   ├── ImageSaver.kt            # 保存到系统相册
 │   │   ├── ImageStore.kt            # 图片文件 + Room 封装 + 旧 JSON 迁移
+│   │   ├── ModelCatalog.kt          # 模型清单缓存、合并规则与编解码（纯 Kotlin）
 │   │   ├── PreferenceKeys.kt        # 键名、旧键回退与导入合并规则（纯 Kotlin）
 │   │   └── PreferencesManager.kt    # 加密偏好
 │   ├── network/
@@ -85,6 +86,7 @@ app/src/main/java/com/example/genbrush/
 │   │   └── NetworkLoggingInterceptor.kt
 │   ├── provider/
 │   │   ├── ImageProvider.kt         # 接口 + 通用请求/结果/异常
+│   │   ├── OpenAIModelListApi.kt   # OpenAI 兼容 GET /models（手动刷新用）
 │   │   ├── ProviderDefinition.kt    # 元数据与 SizeOption
 │   │   ├── ProviderRegistry.kt      # 注册表
 │   │   ├── dashscope/               # Provider / Definition / Api / ApiModels
@@ -105,7 +107,7 @@ app/src/main/java/com/example/genbrush/
     └── theme/                       # Color / Theme / Type
 ```
 
-资源：`res/xml/` 下含 `network_security_config.xml`、`file_provider_paths.xml`、`backup_rules.xml`、`data_extraction_rules.xml`；测试位于 `app/src/test/`（7 个 JVM 测试类 / 46 个用例）与 `app/src/androidTest/`（模板）。Room schema 基线位于 `app/schemas/`。
+资源：`res/xml/` 下含 `network_security_config.xml`、`file_provider_paths.xml`、`backup_rules.xml`、`data_extraction_rules.xml`；测试位于 `app/src/test/`（8 个 JVM 测试类 / 59 个用例）与 `app/src/androidTest/`（模板）。Room schema 基线位于 `app/schemas/`。
 
 ## 4. 模块职责
 
@@ -121,8 +123,9 @@ app/src/main/java/com/example/genbrush/
 
 | 文件 | 职责 |
 |---|---|
-| `ImageProvider.kt` | `generateTextToImage` / `generateImageEdit` / `supportedSizes` / 可选 `fetchModels`；定义 `ProviderImage`、`ProviderCredentials`、`ProviderException`（含 `isContentSafety`） |
-| `ProviderDefinition.kt` | id、中英显示名、预设生成/编辑模型、默认模型、`supportsImageEdit`、API Key 提示、`SizeOption(value = "宽*高", label)` |
+| `ImageProvider.kt` | `generateTextToImage` / `generateImageEdit` / `supportedSizes` / 可选 `fetchModels(credentials): Result<List<String>>`（仅设置页手动刷新时调用）；定义 `ProviderImage`、`ProviderCredentials`、`ProviderException`（含 `isContentSafety`） |
+| `ProviderDefinition.kt` | id、中英显示名、预设生成/编辑模型（清单种子）、默认模型、`supportsImageEdit`、`supportsModelListing`、API Key 提示、`SizeOption(value = "宽*高", label)`；`isImageModelId()` 过滤上游返回的图像模型 |
+| `OpenAIModelListApi.kt` | 两家共用的 OpenAI 兼容 `GET /models` 请求与解析，含 `ModelListException`；DashScope 用 `compatible-mode/v1/models`，Agnes 用 `v1/models` |
 | `ProviderRegistry.kt` | 保存注册列表，`resolve(id)` 在未知 id 时回退到第一个注册项 |
 | `dashscope/` | `DashScopeProvider` 判断 `isWanModel` 走异步任务，否则走同步多模态接口；`DashScopeApi` 负责三个端点与轮询（5s × 120 次）；`DashScopeDefinition` 维护模型族谓词与各系列尺寸表；`ApiModels` 为 Gson DTO |
 | `agnes/` | `AgnesProvider` 用同一 `GenerationRequest` 处理文生图与图编辑；`AgnesApi` 调用 `POST https://apihub.agnes-ai.com/v1/images/generations`；`AgnesDefinition.apiSizeParams` 把内部 `W*H` 反查为 2.5/2.1 的档位值 + ratio，2.0 及未知模型用精确 `WxH` |
@@ -143,8 +146,9 @@ app/src/main/java/com/example/genbrush/
 | `db/AppDatabase.kt` | Room `genbrush.db`，version 1，`exportSchema = true`，v1 schema 基线导出到 `app/schemas/`，单例懒加载 |
 | `db/ImageEntity.kt` | `images` 表：`id / fileName / prompt / model / timestamp / type / size / negativePrompt / isFavorite / seed`，`timestamp` 与 `isFavorite` 有索引 |
 | `db/ImageDao.kt` | 仅基础 CRUD 与全量 Flow；收藏/搜索/筛选的组合逻辑放在 ViewModel 层 |
-| `PreferencesManager.kt` | `EncryptedSharedPreferences`（AES256_GCM 主密钥，AES256_SIV 键 / AES256_GCM 值加密）；所有配置按 provider id 命名空间化，兼容旧全局键与 `backend_type`；`configVersion` 在配置写入时自增；`exportAll()` / `applyImported()` 支撑迁移 |
-| `PreferenceKeys.kt` | 纯 Kotlin：按 provider id 生成键名、`resolveRead` 旧全局键回退、`resolveImported` 把备份映射为最终键值、模型列表分隔符规范化；迁移主逻辑集中于此，由 `PreferenceKeysTest` 覆盖 |
+| `ModelCatalog.kt` | 纯 Kotlin：`CatalogModel`（id / 来源 / 生成与编辑能力 / 两组独立开关）、`ModelCatalog`（清单 + 上次刷新时间）、手写 JSON 编解码，以及 `ModelCatalogRules` 的种子、旧配置迁移、上游合并、开关、增删、可见列表规则；由 `ModelCatalogTest` 覆盖 |
+| `PreferencesManager.kt` | `EncryptedSharedPreferences`（AES256_GCM 主密钥，AES256_SIV 键 / AES256_GCM 值加密）；所有配置按 provider id 命名空间化，兼容旧全局键与 `backend_type`；`catalog_<id>` 存模型清单缓存（首次由预设 + 旧 disabled/custom 键播种，升级只补新增内置项，写回时同步旧键以兼容备份）；`configVersion` 在配置写入时自增；`saveProviderSettings()` 批量写入只发一次信号；`exportAll()` / `applyImported()` 支撑迁移（导入无 `catalog_*` 的旧备份时清缓存重新播种） |
+| `PreferenceKeys.kt` | 纯 Kotlin：按 provider id 生成键名（含 `catalogKey`）、`resolveRead` 旧全局键回退、`resolveImported` 把备份映射为最终键值、模型列表分隔符规范化；迁移主逻辑集中于此，由 `PreferenceKeysTest` 覆盖 |
 | `ImageSaver.kt` | 保存到系统相册：`inJustDecodeBounds` + 采样防 OOM，Android Q+ 用 MediaStore，低版本用 `insertImage` |
 | `DataMigrationManager.kt` | 导出 ZIP：`settings.json` + `metadata.json` + `images/*`；导入时解压到临时目录、拷贝图片、合并元数据、恢复设置，`finally` 清理临时目录 |
 | `AppLogStore.kt` | 512KB 滚动 `recent.log`，单条上限 4000 字符；脱敏 Authorization Bearer、api_key、access/refresh token；`exportRecent()` 输出带版本与设备信息的快照 |
@@ -153,8 +157,8 @@ app/src/main/java/com/example/genbrush/
 ### 4.5 UI 层
 
 - 每个页面遵循 `MutableStateFlow<XState>` + 暴露 `StateFlow` + companion `factory(...)` 的模式。
-- `TextToImageViewModel` / `ImageEditViewModel`：维护 prompt、模型、尺寸、`isGenerating`、`elapsedSeconds`；`init` 订阅 `prefs.configVersion.drop(1)` 联动刷新；持 `generationJob` / `timerJob`，`stopGeneration()` 取消生成并停止计时。
-- `SettingsViewModel`：按 provider 加载 API Key、预置/自定义/禁用模型、默认模型与尺寸；`selectProvider` 切换时重新解析 definition；模型或尺寸失效时回退到首个可用项；`save()` 一次性写入全部配置。
+- `TextToImageViewModel` / `ImageEditViewModel`：维护 prompt、模型、尺寸、`isGenerating`、`elapsedSeconds`；模型列表只来自 `ModelCatalogRules.visibleIds(...)`，不再请求网络；`init` 订阅 `prefs.configVersion.drop(1)` 联动刷新且 `applyDefaults = false`，因此配置变化不会重置用户已选中的模型；持 `generationJob` / `timerJob`，`stopGeneration()` 取消生成并停止计时。
+- `SettingsViewModel`：按 provider 加载 API Key、模型清单缓存、默认模型与尺寸；清单开关与自定义模型增删即时写入 `PreferencesManager.setModelCatalog` 并联动生成页；`refreshRemoteModels()` 手动调用 `provider.fetchModels` 并只合并新增 id；`save()` 通过 `saveProviderSettings()` 一次性写入主要配置。
 - `GalleryViewModel`：`computeDisplayedImages` 在 state 内组合筛选与排序；多选批量删除/收藏；`SaveResult` 为一次性事件，UI 展示后 `consumeSaveResult()`。
 - `FullImageViewerScreen`：`HorizontalPager` + 每页独立 zoom state，缩放时禁用翻页；支持保存/分享/删除与回传重新生成、编辑。
 - `AppStrings.kt` / `LocalStrings.kt`：ZH / EN 两套文案 + `staticCompositionLocalOf`，`resolveAppStrings` 处理 `system`；`ErrorMapper` 把 `ProviderException` 与常见错误关键词映射为本地化提示。
@@ -168,6 +172,8 @@ app/src/main/java/com/example/genbrush/
 | `ProviderImage` | `ImageProvider.kt` | `Remote(url)` 或 `Raw(bytes)`；`Raw` 自定义了按内容比较的 `equals` / `hashCode` |
 | `ProviderException` | `ImageProvider.kt` | 携带 `code`、`message`、`isContentSafety`；`DashScopeException` / `AgnesException` 继承它 |
 | `SizeOption` | `ProviderDefinition.kt` | `value = "宽*高"`、`label` 为展示文案；各 provider 通过 `supportedSizes(model)` 返回 |
+| `ModelCatalog` / `CatalogModel` | `ModelCatalog.kt` | 每个提供商的持久化模型清单；条目含 id、`BUILTIN`/`REMOTE`/`CUSTOM` 来源、生成/编辑能力与两组独立开关，`lastRefreshedAt` 记录最近一次上游刷新 |
+| `ModelSeed` / `ModelCatalogRules` | `ModelCatalog.kt` | 由 `ProviderDefinition` 派生的内置种子；清单播种、旧配置迁移、上游合并、开关与可见列表的纯函数规则 |
 | `SaveResult` | `GalleryViewModel.kt` | `Success` / `Error(message)` 一次性事件 |
 
 ## 6. 两个提供商对照
@@ -181,6 +187,8 @@ app/src/main/java/com/example/genbrush/
 | 图像编辑 | 同步接口内联图片内容项；wan 系列走异步任务 | `extra_body.image` 传 Data URI 数组，`response_format` 必须置于 `extra_body` 内 |
 | 反向提示词 | 文生图支持（`negative_prompt`）；编辑路径为空 | 不支持，请求中忽略 |
 | 默认模型 | `qwen-image-2.0-pro` | `agnes-image-2.5-flash` |
+| 模型列表端点 | `GET /compatible-mode/v1/models` | `GET /v1/models` |
+| 图像模型过滤 | `qwen-image*` / `wan*image*` | `agnes-image-*` |
 
 新增提供商：实现 `ImageProvider` + 提供 `ProviderDefinition` + 在 `GenBrushApp.onCreate()` 注册；设置页选择器自动列出，配置按 `definition.id` 隔离。
 
@@ -205,7 +213,7 @@ app/src/main/java/com/example/genbrush/
 
 ### 7.3 配置联动
 
-设置页 `save()` 写入 `PreferencesManager` → `notifyConfigChanged()` 使 `configVersion` 自增 → 生成页 ViewModel 的 `drop(1).collect` 触发 `refreshModels(applyDefaults = true)` → 重新读取当前 provider 的预设/禁用/自定义模型、`supportedSizes`、默认模型与尺寸，并对失效选项做安全回退。避免了依赖页面重建或 `ON_RESUME` 时机。
+设置页是模型清单的唯一写入方：勾选 / 增删 / 手动刷新都通过 `setModelCatalog()` 立即写盘 → `notifyConfigChanged()` 使 `configVersion` 自增 → 生成页 ViewModel 的 `drop(1).collect` 触发 `refreshModels(applyDefaults = false)` → 从 `catalog_<id>` 读取 `visibleIds(...)`、`supportedSizes`、默认模型与尺寸，仅在当前选中项已被关闭时才回退。不再依赖页面重建或 `ON_RESUME` 时机，也不会把用户在生成页临时选中的模型重置为默认值。`save()` 走 `saveProviderSettings()`，一次写入只发一次信号。
 
 ### 7.4 相册筛选与排序
 
@@ -215,12 +223,16 @@ app/src/main/java/com/example/genbrush/
 
 导出：`DataMigrationManager.exportData` 生成 ZIP（`settings.json`、`metadata.json`、`images/*`），设置同时包含顶层兼容键与所有 `api_key_*` 等命名空间键。导入：解压到 `cacheDir/import_temp_*` → 拷贝图片（跳过已存在文件）→ `importEntries`（跳过已存在 id）→ `applyImported`（由 `PreferenceKeys.resolveImported` 先计算顶层键映射，再用命名空间键覆盖，一次性写入）→ 清理临时目录。日志导出由设置页 SAF launcher 调用 `AppLogStore.exportRecent()`。
 
+### 7.6 手动刷新模型清单
+
+设置页「模型管理」→「从上游获取模型」（仅 `supportsModelListing = true` 的提供商显示）→ `SettingsViewModel.refreshRemoteModels()` 取当前输入框或已保存的 API Key → `provider.fetchModels(credentials)` → `OpenAIModelListApi` 发 `GET /models`（Bearer 鉴权）并解析 OpenAI 格式 `data[].id` → 各 `*Definition.isImageModelId()` 过滤出图像模型 → `ModelCatalogRules.mergeRemote()` 只新增缓存里没有的 id（默认启用）并记录 `lastRefreshedAt` → `setModelCatalog()` 写盘并联动生成页。已有条目的来源与开关不被覆盖，上游暂时缺席的条目也不会被删除；请求失败、返回为空或无可用图像模型时缓存保持原样，界面显示具体原因。
+
 ## 8. 构建、签名与 CI
 
 ```bash
 ./gradlew assembleDebug          # debug APK
 ./gradlew assembleRelease        # release APK（有凭据才签名）
-./gradlew test                   # JVM 单测：7 个测试类 / 46 个用例
+./gradlew test                   # JVM 单测：8 个测试类 / 59 个用例
 ./gradlew lintDebug              # Android lint（CI 中执行）
 ./gradlew connectedAndroidTest   # 设备测试（当前仅模板）
 ```
@@ -228,25 +240,27 @@ app/src/main/java/com/example/genbrush/
 - `settings.gradle.kts` 在非 CI 环境启用阿里云 Maven 镜像；`FAIL_ON_PROJECT_REPOS` 强制集中管理仓库。
 - 依赖版本集中在 `gradle/libs.versions.toml`，Compose 由 BOM 统一；Java 11 兼容；`buildConfig = true`、`compose = true`。
 - **签名**：版本库不含任何凭据。`app/build.gradle.kts` 从 Gradle property 或环境变量读取 `SIGNING_STORE_PASSWORD` / `SIGNING_KEY_PASSWORD` / `SIGNING_KEY_ALIAS`，仅在项目根目录存在 `genbrush-release.jks` 且密码可用时创建 release signing config。缺失时构建不报错，release 输出 `app-release-unsigned.apk`。本地凭据放 `~/.gradle/gradle.properties` 或 `-P`；CI 由 secrets 注入。
-- **CI**：`android.yml` 在 push / PR 执行 `assembleDebug` + `test` + `lintDebug` 并上传 debug APK；`release.yml` 在 `v*` tag 时校验签名 secrets、恢复 keystore、构建 release 并发布 GitHub Release。`v1.1` / `v1.2` tag 均在，v1.2 于 2026-11-07 发布（asset `app-release.apk`，约 14MB，已验证 V2 签名）。
-- **签名证书轮换**：v1.2 使用 2026-11-07 轮换后的新证书，与 v1.1 不同，老用户无法覆盖升级，需卸载重装。
+- **CI**：`android.yml` 在 push / PR 执行 `assembleDebug` + `test` + `lintDebug` 并上传 debug APK；`release.yml` 在 `v*` tag 时校验签名 secrets、恢复 keystore、构建 release 并发布 GitHub Release。`v1.1` / `v1.2` / `v1.3` tag 均在；v1.2 于 2026-11-07、v1.3 于 2026-11-09 发布（asset 均为 `app-release.apk`，约 14MB，V2 签名）。
+- **签名证书轮换**：v1.2 使用 2026-11-07 轮换后的新证书，与 v1.1 不同，v1.1 用户无法覆盖升级，需卸载重装；v1.3 沿用 v1.2 证书，v1.2 用户可直接覆盖安装。
 - CI 已运行 `lintDebug`（error 阻断构建，warning 不阻断）；未配置 ktlint / detekt，`CONTRIBUTING.md` 已改为实际存在的命令。
 
 ## 9. 约定与已知限制
 
-- **约定**：Kotlin DSL + version catalog；Compose 版本不由单个依赖指定；Provider 不碰持久化与 UI；模型族判断与尺寸表归属各 `*Definition`；新增文案需同时补 ZH / EN；不提交密钥、keystore、`local.properties`；Room 改表结构需提交 `app/schemas/` 新版本并编写 `Migration`。
+- **约定**：Kotlin DSL + version catalog；Compose 版本不由单个依赖指定；Provider 不碰持久化与 UI；模型族判断与尺寸表归属各 `*Definition`；模型列表统一从 `ModelCatalog` 读取、不由 UI 现算，在线发现只由设置页手动触发且不得覆盖用户开关；新增文案需同时补 ZH / EN；不提交密钥、keystore、`local.properties`；Room 改表结构需提交 `app/schemas/` 新版本并编写 `Migration`。
+- **版本号**：`app/build.gradle.kts` 的 `appVersionName` / `appVersionCode` 是唯一来源，`defaultConfig` 与 `BuildConfig.APP_VERSION` 都由它派生；设置页「关于」只读 `BuildConfig.APP_VERSION`，禁止再硬编码。
 - Release **不启用 R8 混淆**，`proguard-rules.pro` 保留但未激活。
 - `network_security_config.xml` 的 `base-config` 默认禁止明文 HTTP（两家 provider 均 HTTPS）；将来接入局域网本地端点时应另加 `domain-config` 白名单，不要重新放开全局明文。
 - `data_extraction_rules.xml` 仍是模板（含 TODO）；`AndroidManifest` 中 `allowBackup="false"`，因此云备份实际关闭。
 - Room 为 version 1，已开启 `exportSchema = true` 并在 `app/schemas/` 保存 v1 基线；后续改表结构需一并提交新版本 schema 并编写 `Migration`。
 - `androidx.security:security-crypto` 使用 `1.1.0-alpha06`（alpha 版本）。
 - 依赖装配为手写 Service Locator，无 DI 框架；`FullImageViewerScreen` 与 `SettingsScreen` 直接使用 repository / `DataMigrationManager`，未走 ViewModel。
-- Agnes AI 与图像编辑路径不支持反向提示词；模型与尺寸表为硬编码，上游 API 变更需手工更新。
-- JVM 测试覆盖 API DTO、尺寸参数、错误映射、日志脱敏，以及 `PreferenceKeys` 的配置迁移与 `GenerationCore` 的生成编排；Room、ViewModel 与 UI 仍无自动化测试，`androidTest` 仍是模板。
+- Agnes AI 与图像编辑路径不支持反向提示词。模型清单已持久化缓存并支持手动从上游刷新，但**尺寸表与模型族判断仍是硬编码**：新拉到的模型或自定义模型一律回退到默认尺寸档位；上游模型按 id 前缀过滤，若上游改名或代理第三方图像模型，需要调整 `isImageModelId()` 或手动添加自定义模型。
+- JVM 测试覆盖 API DTO、尺寸参数、错误映射、日志脱敏，以及 `PreferenceKeys` 的配置迁移、`ModelCatalog` 的清单规则与 `GenerationCore` 的生成编排；Room、ViewModel 与 UI 仍无自动化测试，`androidTest` 仍是模板。
 
 ## 10. 版本历史
 
 | 版本 | 变化 |
 |---|---|
 | v1.1 及更早 | DashScope + SD WebUI 双后端，LoRA 选择器，`data/remote/` 远程层，`backend_type` 配置 |
-| v1.2（当前代码） | 移除 SD WebUI / LoRA；引入 `ImageProvider` / `ProviderDefinition` / `ProviderRegistry`；新增 Agnes AI；配置按提供商命名空间化并兼容旧键；新增诊断日志、可取消生成、qwen-image-3.0 支持、发布签名与 CI；版本号 1.2 / versionCode 3，2026-11-07 打 tag 并发布 GitHub Release（签名证书已轮换） |
+| v1.2 | 移除 SD WebUI / LoRA；引入 `ImageProvider` / `ProviderDefinition` / `ProviderRegistry`；新增 Agnes AI；配置按提供商命名空间化并兼容旧键；新增诊断日志、可取消生成、qwen-image-3.0 支持、发布签名与 CI；版本号 1.2 / versionCode 3，2026-11-07 打 tag 并发布 GitHub Release（签名证书已轮换） |
+| v1.3（当前代码） | 引入持久化模型清单 `ModelCatalog`（按提供商命名空间、旧配置迁移、升级只补新增内置项）；两家 provider 接入 OpenAI 兼容 `GET /models`，设置页手动刷新并只合并新增的上游图像模型；模型开关与自定义增删即时写盘并联动生成页；移除生成页自动拉取与配置变化重置选中模型；`saveProviderSettings()` 合并配置写入；设置页版本号改由 `BuildConfig.APP_VERSION` 单一来源驱动；新增 `ModelCatalogTest`（13 例，共 8 个测试类 / 59 用例）；版本号 1.3 / versionCode 4，2026-11-09 打 tag 并发布 GitHub Release（沿用 v1.2 签名证书） |

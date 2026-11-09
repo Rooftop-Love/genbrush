@@ -9,13 +9,20 @@ AI 图像生成与编辑 Android 应用，基于 Jetpack Compose 构建。采用
 - **文生图** — 提示词 + 反向提示词，可选模型与尺寸；生成过程可随时停止，并显示已耗时
 - **图像编辑** — 从相册选图，用提示词进行 AI 编辑
 - **多提供商架构** — 设置页切换 DashScope / Agnes AI，配置按提供商隔离；新增提供商只需实现接口并注册
-- **模型管理** — 每个提供商独立的预置模型启用/禁用、自定义模型增删
+- **模型清单** — 每个提供商一份本地缓存的模型清单；可手动从上游拉取可用模型，勾选即控制生成/编辑页显示，并支持自定义模型增删
 - **相册** — 搜索、类型筛选、排序、收藏、多选批量删除/收藏、保存到系统相册
 - **图片详情** — 全屏翻页与缩放、保存/分享/删除、复制提示词、基于原图重新生成或继续编辑
 - **数据迁移** — ZIP 导出/导入图片、元数据与设置（兼容旧版备份格式）
 - **诊断日志** — 应用内记录最近日志（自动脱敏），设置页一键导出
 - **安全存储** — API Key 与偏好设置经 `EncryptedSharedPreferences`（AES-256）加密存储
 - **Material 3** — Android 12+ 动态取色；中英双语，支持跟随系统
+
+## What's new in v1.3
+
+- **模型清单缓存**：模型列表不再写死在代码里，而是按提供商持久化缓存。首次启动由内置预设播种，并自动迁移旧版的「禁用 / 自定义模型」配置；后续版本升级只补齐新增内置项，不会重置你调过的开关。
+- **手动发现上游模型**：设置 → 图像服务 → 模型管理 → 「从上游获取模型」，通过 DashScope / Agnes 的 OpenAI 兼容 `/models` 端点拉取图像模型。只新增缓存里没有的条目，失败或返回空时清单保持原样，并显示上次更新时间与具体原因。
+- **开关即显示**：清单里每一项（内置 / 上游 / 自定义）都能直接勾选，改动立即写盘并联动文生图、图像编辑页的下拉，无需再点「保存设置」。
+- **其他改进**：修复设置保存后生成页选中的模型被重置、模型管理部分文案未本地化；版本号改由构建配置单一来源驱动，设置页「关于」不再写死。
 
 ## Requirements
 
@@ -63,7 +70,7 @@ Windows 上使用 `gradlew.bat` 代替 `./gradlew`。Release 构建默认**不�
 - 本地：将 `genbrush-release.jks` 放到项目根目录（已被 `.gitignore` 忽略），在 `~/.gradle/gradle.properties` 中配置 `SIGNING_STORE_PASSWORD`、`SIGNING_KEY_PASSWORD`、`SIGNING_KEY_ALIAS`，或用 `-P` 参数传入。
 - CI：`.github/workflows/release.yml` 在推送 `v*` tag 时，从 GitHub Secrets 读取 `SIGNING_KEY_STORE_BASE64` 恢复 keystore，并注入上述三个密码环境变量；缺少必需 secret 时工作流直接失败，避免发布未签名包。
 
-> **升级提示**：v1.2 使用 2026-11-07 轮换后的新签名证书，与 v1.1 不同，v1.1 用户无法直接覆盖安装，需先卸载旧版再安装。
+> **升级提示**：v1.2 使用 2026-11-07 轮换后的新签名证书，与 v1.1 不同，v1.1 用户无法直接覆盖安装，需先卸载旧版再安装。v1.3 沿用同一证书，v1.2 用户可直接覆盖安装。
 
 ## Tech Stack
 
@@ -77,7 +84,7 @@ Windows 上使用 `gradlew.bat` 代替 `./gradlew`。Release 构建默认**不�
 | 本地存储 | Room 2.7.0 + EncryptedSharedPreferences |
 | 构建 | Gradle 9.4.1（Kotlin DSL）+ AGP 9.2.1 + KSP 2.3.6 |
 | SDK | min 24 / target 36 / compile 36 |
-| 当前版本 | 1.2（versionCode 3，2026-11-07 已发布） |
+| 当前版本 | 1.3（versionCode 4，2026-11-09 发布） |
 
 依赖版本集中在 `gradle/libs.versions.toml`，Compose 组件由 BOM 统一管理，不单独指定版本。
 
@@ -94,6 +101,7 @@ app/src/main/java/com/example/genbrush/
 │   │   ├── DataMigrationManager.kt # ZIP 导入导出
 │   │   ├── ImageSaver.kt           # 保存到系统相册（OOM 保护）
 │   │   ├── ImageStore.kt           # 图片文件 + Room 封装 + 旧 JSON 迁移
+│   │   ├── ModelCatalog.kt         # 模型清单缓存、合并规则与 JSON 编解码（纯 Kotlin）
 │   │   ├── PreferenceKeys.kt       # 配置键名、旧键回退与导入合并规则
 │   │   └── PreferencesManager.kt   # 加密偏好（provider_id 与按提供商命名空间的配置）
 │   ├── network/
@@ -101,6 +109,7 @@ app/src/main/java/com/example/genbrush/
 │   │   └── NetworkLoggingInterceptor.kt  # 请求/响应摘要写入 AppLogStore
 │   ├── provider/
 │   │   ├── ImageProvider.kt        # 接口 + 通用请求/结果/异常类型
+│   │   ├── OpenAIModelListApi.kt  # OpenAI 兼容 GET /models（手动刷新用）
 │   │   ├── ProviderDefinition.kt   # 提供商元数据与能力声明
 │   │   ├── ProviderRegistry.kt     # 注册表与未知 id 回退
 │   │   ├── dashscope/              # DashScope：qwen 同步 / wan 异步轮询
@@ -124,15 +133,15 @@ app/src/main/java/com/example/genbrush/
 
 ## 接入新的图像提供商
 
-1. 在 `data/provider/<id>/` 下实现 `ImageProvider`（文生图、图编辑、`supportedSizes`；可选 `fetchModels`）。
-2. 提供对应的 `ProviderDefinition`（id、显示名、预设生成/编辑模型、默认模型、`supportsImageEdit`、API Key 提示）。
+1. 在 `data/provider/<id>/` 下实现 `ImageProvider`（文生图、图编辑、`supportedSizes`；可选 `fetchModels(credentials)` 配合 `supportsModelListing = true` 支持在线发现模型）。
+2. 提供对应的 `ProviderDefinition`（id、显示名、预置生成/编辑模型作为清单种子、默认模型、`supportsImageEdit`、API Key 提示）。
 3. 在 `GenBrushApp.onCreate()` 中构造实现并注册进 `ProviderRegistry`。
 
-设置页的提供商选择器会自动列出新注册项；API Key、默认模型/尺寸、禁用与自定义模型列表均按 `definition.id` 命名空间隔离存储。
+设置页的提供商选择器会自动列出新注册项；API Key、默认模型/尺寸与模型清单缓存（`catalog_<id>`）均按 `definition.id` 命名空间隔离存储。清单首次由预置模型播种，之后只由设置页的开关和「从上游获取模型」按钮更新。
 
 ## Testing
 
-`./gradlew test` 运行 JVM 单元测试，覆盖 API 数据模型与尺寸参数转换、错误映射、日志脱敏、配置迁移与生成编排（7 个测试类 / 46 个用例）。`./gradlew connectedAndroidTest` 需要设备或模拟器，目前仅有模板用例。CI（`android.yml`）在 push / PR 时执行 `assembleDebug` + `test` + `lintDebug` 并上传 debug APK。
+`./gradlew test` 运行 JVM 单元测试，覆盖 API 数据模型与尺寸参数转换、错误映射、日志脱敏、配置迁移、模型清单合并规则与生成编排（8 个测试类 / 59 个用例）。`./gradlew connectedAndroidTest` 需要设备或模拟器，目前仅有模板用例。CI（`android.yml`）在 push / PR 时执行 `assembleDebug` + `test` + `lintDebug` 并上传 debug APK。
 
 ## Contributing
 

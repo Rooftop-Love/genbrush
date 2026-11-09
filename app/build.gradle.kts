@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// 版本号唯一来源：defaultConfig 与设置页显示的 BuildConfig.APP_VERSION 都从这里派生。
+val appVersionName = "1.3"
+val appVersionCode = 4
+
 android {
     namespace = "com.example.genbrush"
     compileSdk {
@@ -16,8 +20,10 @@ android {
         applicationId = "com.example.genbrush"
         minSdk = 24
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = appVersionCode
+        versionName = appVersionName
+        // 设置页「关于」显示的版本号，避免再次出现硬编码与 versionName 不同步。
+        buildConfigField("String", "APP_VERSION", "\"$appVersionName\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

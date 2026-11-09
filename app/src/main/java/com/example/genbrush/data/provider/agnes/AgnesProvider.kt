@@ -53,6 +53,11 @@ class AgnesProvider(private val api: AgnesApi) : ImageProvider {
 
     override fun supportedSizes(model: String?): List<SizeOption> =
         AgnesDefinition.supportedSizes(model)
+
+    override suspend fun fetchModels(credentials: ProviderCredentials): Result<List<String>> =
+        api.listModels(credentials.apiKey).map { ids ->
+            ids.filter { AgnesDefinition.isImageModelId(it) }
+        }
 }
 
 private fun ImageApiResponse.toProviderImage(): ProviderImage {

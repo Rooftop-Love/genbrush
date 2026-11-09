@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -63,16 +62,23 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.genbrush.BuildConfig
 import com.example.genbrush.data.local.AppLogStore
 import com.example.genbrush.data.local.DataMigrationManager
+import com.example.genbrush.data.local.ModelCapability
+import com.example.genbrush.data.local.ModelCatalog
+import com.example.genbrush.data.local.ModelCatalogRules
+import com.example.genbrush.data.local.ModelSource
 import com.example.genbrush.data.local.PreferencesManager
 import com.example.genbrush.data.provider.ProviderDefinition
 import com.example.genbrush.ui.components.ModelSelector
 import com.example.genbrush.ui.components.SizeSelector
-import com.example.genbrush.ui.components.buildAvailableModels
 import com.example.genbrush.ui.localization.AppStrings
 import com.example.genbrush.ui.localization.LocalStrings
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 // ── 可折叠分组面板 ─────────────────────────────────────────────
 
@@ -130,37 +136,64 @@ private fun SettingsSectionCard(
 
 @Composable
 private fun ModelListSection(
-    presetModels: List<String>,
-    disabledModels: Set<String>,
-    customModels: List<String>,
+    catalog: ModelCatalog,
+    capability: ModelCapability,
     customModelInput: String,
     onCustomInputChanged: (String) -> Unit,
-    onTogglePreset: (String) -> Unit,
+    onToggleModel: (String) -> Unit,
     onAddCustom: () -> Unit,
     onRemoveCustom: (String) -> Unit,
     s: AppStrings
 ) {
+    val entries = ModelCatalogRules.entriesFor(catalog, capability)
+    val enabledCount = entries.count { it.isEnabled(capability) }
     Text(
-        s.settingsPresetModels,
+        s.modelAvailableList,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Text(
+        s.modelEnabledCount.format(enabledCount, entries.size),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
     Spacer(modifier = Modifier.height(4.dp))
-    presetModels.forEach { model ->
-        val isEnabled = model !in disabledModels
+    entries.forEach { model ->
+        val checked = model.isEnabled(capability)
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .toggleable(value = isEnabled, onValueChange = { onTogglePreset(model) })
-                .padding(vertical = 2.dp),
+            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Checkbox(checked = isEnabled, onCheckedChange = null, modifier = Modifier.size(32.dp))
-            Text(
-                model,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(start = 6.dp)
+            Checkbox(
+                checked = checked,
+                onCheckedChange = { onToggleModel(model.id) },
+                modifier = Modifier.size(32.dp)
             )
+            Text(
+                model.id,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f).padding(start = 6.dp)
+            )
+            Text(
+                sourceLabel(model.source, s),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (model.source == ModelSource.CUSTOM) {
+                IconButton(
+                    onClick = { onRemoveCustom(model.id) },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Delete,
+                        contentDescription = s.settingsRemoveModel,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.width(24.dp))
+            }
         }
     }
     Spacer(modifier = Modifier.height(10.dp))
@@ -169,30 +202,6 @@ private fun ModelListSection(
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
-    Spacer(modifier = Modifier.height(4.dp))
-    customModels.forEach { model ->
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                model,
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f).padding(start = 38.dp)
-            )
-            IconButton(
-                onClick = { onRemoveCustom(model) },
-                modifier = Modifier.size(24.dp)
-            ) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = s.settingsRemoveModel,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(15.dp)
-                )
-            }
-        }
-    }
     Spacer(modifier = Modifier.height(6.dp))
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(
@@ -207,6 +216,18 @@ private fun ModelListSection(
             Text(s.settingsAddButton)
         }
     }
+}
+
+private fun sourceLabel(source: ModelSource, s: AppStrings): String = when (source) {
+    ModelSource.BUILTIN -> s.modelSourceBuiltin
+    ModelSource.REMOTE -> s.modelSourceRemote
+    ModelSource.CUSTOM -> s.modelSourceCustom
+}
+
+private fun lastRefreshText(timestamp: Long, s: AppStrings): String {
+    if (timestamp <= 0L) return s.modelNeverRefreshed
+    val formatted = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(timestamp))
+    return s.modelLastRefresh.format(formatted)
 }
 
 // ── 提供商选择器（列表来自 ProviderRegistry）─────────────────────
@@ -283,6 +304,61 @@ private fun ModelManagementPage(
         ) {
             Spacer(modifier = Modifier.height(2.dp))
 
+            // 手动从上游获取模型（仅在提供 /models 的提供商下显示）
+            if (state.supportsModelListing) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            s.modelRefresh,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            s.modelRefreshHint,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            lastRefreshText(state.modelCatalog.lastRefreshedAt, s),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(
+                            onClick = viewModel::refreshRemoteModels,
+                            enabled = !state.isRefreshingModels,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            if (state.isRefreshingModels) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(s.modelRefreshing)
+                            } else {
+                                Text(s.modelRefresh)
+                            }
+                        }
+                        state.modelRefreshMessage?.let { message ->
+                            Text(
+                                message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (state.modelRefreshFailed) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
             // 生成模型
             SettingsSectionCard(
                 title = s.sectionGenModels,
@@ -290,12 +366,11 @@ private fun ModelManagementPage(
                 onToggle = {}
             ) {
                 ModelListSection(
-                    presetModels = state.presetGenerationModels,
-                    disabledModels = state.disabledGenerationModels,
-                    customModels = state.customGenerationModels,
+                    catalog = state.modelCatalog,
+                    capability = ModelCapability.GENERATION,
                     customModelInput = state.customGenModelInput,
                     onCustomInputChanged = viewModel::updateCustomGenModelInput,
-                    onTogglePreset = viewModel::toggleGenerationModel,
+                    onToggleModel = viewModel::toggleGenerationModel,
                     onAddCustom = viewModel::addCustomGenerationModel,
                     onRemoveCustom = viewModel::removeCustomGenerationModel,
                     s = s
@@ -310,12 +385,11 @@ private fun ModelManagementPage(
                     onToggle = {}
                 ) {
                     ModelListSection(
-                        presetModels = state.presetEditModels,
-                        disabledModels = state.disabledEditModels,
-                        customModels = state.customEditModels,
+                        catalog = state.modelCatalog,
+                        capability = ModelCapability.EDIT,
                         customModelInput = state.customEditModelInput,
                         onCustomInputChanged = viewModel::updateCustomEditModelInput,
-                        onTogglePreset = viewModel::toggleEditModel,
+                        onToggleModel = viewModel::toggleEditModel,
                         onAddCustom = viewModel::addCustomEditModel,
                         onRemoveCustom = viewModel::removeCustomEditModel,
                         s = s
@@ -383,6 +457,8 @@ fun SettingsScreen(
                 try {
                     val inputStream = context.contentResolver.openInputStream(uri)!!
                     val result = migrationManager.importData(inputStream)
+                    // 备份可能覆盖了模型清单缓存，重新加载设置页状态。
+                    viewModel.reload()
                     viewModel.setMigrationMessage(s.migrationImportSuccess.format(result.imageCount))
                 } catch (e: Exception) {
                     viewModel.setMigrationMessage(s.migrationError + (e.message ?: "Unknown"))
@@ -530,10 +606,9 @@ fun SettingsScreen(
                 expanded = SECTION_DEFAULTS in state.expandedSections,
                 onToggle = { viewModel.toggleSection(SECTION_DEFAULTS) }
             ) {
-                val configuredModels = buildAvailableModels(
-                    state.presetGenerationModels,
-                    state.disabledGenerationModels,
-                    state.customGenerationModels
+                val configuredModels = ModelCatalogRules.visibleIds(
+                    state.modelCatalog,
+                    ModelCapability.GENERATION
                 )
                 if (configuredModels.isNotEmpty()) {
                     ModelSelector(
@@ -634,7 +709,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(s.settingsAboutDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(2.dp))
-                Text("${s.settingsVersion} v1.0.0", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${s.settingsVersion} v${BuildConfig.APP_VERSION}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Spacer(modifier = Modifier.height(20.dp))

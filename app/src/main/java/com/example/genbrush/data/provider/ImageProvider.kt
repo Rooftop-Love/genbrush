@@ -51,9 +51,12 @@ interface ImageProvider {
     fun supportedSizes(model: String?): List<SizeOption>
 
     /**
-     * 在线拉取模型列表；不支持的提供商返回 null（此时使用 definition 中的预设模型）。
+     * 在线拉取上游模型列表，仅由设置页手动触发。
+     * 返回已筛掉非图像模型的 id；不支持该能力的提供商返回空列表。
+     * 上层负责把结果合并进持久化清单，不会直接覆盖用户的启用/禁用配置。
      */
-    suspend fun fetchModels(): List<String>? = null
+    suspend fun fetchModels(credentials: ProviderCredentials): Result<List<String>> =
+        Result.success(emptyList())
 }
 
 /** 调用提供商 API 所需的凭据。以后接入需要 baseUrl 等配置的提供商时在此扩展。 */

@@ -43,8 +43,16 @@ object DashScopeDefinition {
         presetEditModels = PRESET_EDIT_MODELS,
         supportsImageEdit = true,
         apiKeyHintZh = "请输入阿里云百炼平台的 DashScope API Key。",
-        apiKeyHintEn = "Enter your DashScope API key from Alibaba Cloud console."
+        apiKeyHintEn = "Enter your DashScope API key from Alibaba Cloud console.",
+        supportsModelListing = true
     )
+
+    /** 从 GET /models 的全量列表里筛出图像生成模型（平台同时返回文本、语音、视频模型）。 */
+    fun isImageModelId(id: String): Boolean {
+        val normalized = id.trim().lowercase()
+        return normalized.startsWith("qwen-image") ||
+            (normalized.startsWith("wan") && normalized.contains("image"))
+    }
 
     /**
      * qwen-image-2.0 系列（qwen-image-2.0-pro / qwen-image-2.0）

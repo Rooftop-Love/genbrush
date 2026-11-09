@@ -21,6 +21,9 @@ object PreferenceKeys {
     const val KEY_CUSTOM_GEN_MODELS = "custom_gen_models"
     const val KEY_CUSTOM_EDIT_MODELS = "custom_edit_models"
 
+    /** 模型清单缓存的键前缀；清单本身是 JSON，取代旧的 disabled_* / custom_* 作为唯一数据源。 */
+    const val PREFIX_CATALOG = "catalog_"
+
     const val DEFAULT_PROVIDER_ID = "dashscope"
 
     fun apiKeyKey(providerId: String) = "api_key_$providerId"
@@ -30,6 +33,7 @@ object PreferenceKeys {
     fun disabledEditModelsKey(providerId: String) = "disabled_edit_models_$providerId"
     fun customGenModelsKey(providerId: String) = "custom_gen_models_$providerId"
     fun customEditModelsKey(providerId: String) = "custom_edit_models_$providerId"
+    fun catalogKey(providerId: String) = "$PREFIX_CATALOG$providerId"
 
     private val SCOPED_PREFIXES = listOf(
         "api_key_",
@@ -38,11 +42,16 @@ object PreferenceKeys {
         "disabled_gen_models_",
         "disabled_edit_models_",
         "custom_gen_models_",
-        "custom_edit_models_"
+        "custom_edit_models_",
+        PREFIX_CATALOG
     )
 
     /** 是否属于「按提供商命名空间存储」的键（导出/导入时需要单独处理）。 */
     fun isProviderScoped(key: String): Boolean = SCOPED_PREFIXES.any { key.startsWith(it) }
+
+    /** 备份中是否包含新版模型清单；旧版备份导入时需要让清单按旧键重新播种。 */
+    fun hasCatalogKeys(settings: Map<String, String>): Boolean =
+        settings.keys.any { it.startsWith(PREFIX_CATALOG) }
 
     fun parseModels(raw: String?): List<String> =
         if (raw.isNullOrBlank()) emptyList()

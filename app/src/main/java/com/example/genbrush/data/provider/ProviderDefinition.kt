@@ -22,7 +22,9 @@ data class ProviderDefinition(
     val supportsImageEdit: Boolean = true,
     /** 设置页 API Key 输入框下方的提示文案（中/英） */
     val apiKeyHintZh: String = "",
-    val apiKeyHintEn: String = ""
+    val apiKeyHintEn: String = "",
+    /** 是否提供 OpenAI 兼容的 GET /models，决定设置页是否显示「从上游获取模型」按钮 */
+    val supportsModelListing: Boolean = false
 ) {
     fun displayName(language: String): String = localize(language, nameZh, nameEn)
 

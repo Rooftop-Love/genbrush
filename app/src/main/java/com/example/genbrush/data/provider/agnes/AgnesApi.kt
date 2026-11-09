@@ -1,6 +1,7 @@
 package com.example.genbrush.data.provider.agnes
 
 import com.example.genbrush.data.network.executeCancellable
+import com.example.genbrush.data.provider.OpenAIModelListApi
 import com.example.genbrush.data.provider.ProviderException
 import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
@@ -20,6 +21,11 @@ class AgnesApi(
     private val client: OkHttpClient,
     private val gson: Gson
 ) {
+    private val modelListApi = OpenAIModelListApi(client, gson, MODELS_ENDPOINT)
+
+    /** 手动刷新模型清单时调用；生成流程不触发。 */
+    suspend fun listModels(apiKey: String): Result<List<String>> = modelListApi.listModels(apiKey)
+
     suspend fun generateImage(
         apiKey: String,
         request: GenerationRequest
@@ -78,6 +84,8 @@ class AgnesApi(
     companion object {
         const val BASE_URL = "https://apihub.agnes-ai.com/v1"
         const val GENERATIONS_ENDPOINT = "$BASE_URL/images/generations"
+        /** OpenAI 兼容的模型列表端点 */
+        const val MODELS_ENDPOINT = "$BASE_URL/models"
     }
 }
 
