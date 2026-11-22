@@ -15,6 +15,8 @@ object PreferenceKeys {
     const val KEY_DEFAULT_MODEL = "default_model"
     const val KEY_DEFAULT_SIZE = "default_size"
     const val KEY_LANGUAGE = "language"
+    const val KEY_THEME_MODE = "theme_mode"
+    const val KEY_DYNAMIC_COLOR = "dynamic_color"
     const val KEY_PROVIDER_ID = "provider_id"
     const val KEY_DISABLED_GEN_MODELS = "disabled_gen_models"
     const val KEY_DISABLED_EDIT_MODELS = "disabled_edit_models"
@@ -112,6 +114,8 @@ object PreferenceKeys {
         copyText(KEY_DEFAULT_MODEL, defaultModelKey(active))
         copyText(KEY_DEFAULT_SIZE, defaultSizeKey(active))
         copyText(KEY_LANGUAGE, KEY_LANGUAGE)
+        copyText(KEY_THEME_MODE, KEY_THEME_MODE)
+        copyText(KEY_DYNAMIC_COLOR, KEY_DYNAMIC_COLOR)
         copyModels(KEY_DISABLED_GEN_MODELS, disabledGenModelsKey(active))
         copyModels(KEY_DISABLED_EDIT_MODELS, disabledEditModelsKey(active))
         copyModels(KEY_CUSTOM_GEN_MODELS, customGenModelsKey(active))

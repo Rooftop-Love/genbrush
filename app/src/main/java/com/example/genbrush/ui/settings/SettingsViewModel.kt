@@ -21,27 +21,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-// 可折叠面板的标识
-const val SECTION_API_CONFIG = "api_config"
-const val SECTION_DEFAULTS = "defaults"
-const val SECTION_LANGUAGE = "language"
-const val SECTION_ABOUT = "about"
-const val SECTION_MIGRATION = "migration"
-
-private val ALL_SECTIONS = setOf(
-    SECTION_API_CONFIG,
-    SECTION_DEFAULTS, SECTION_LANGUAGE, SECTION_MIGRATION, SECTION_ABOUT
-)
-
 data class SettingsState(
     val apiKey: String = "",
+    val apiKeyDirty: Boolean = false,
     val isApiKeyVisible: Boolean = false,
     val defaultModel: String = PreferencesManager.DEFAULT_MODEL,
     val defaultSize: String = PreferencesManager.DEFAULT_SIZE,
     val language: String = PreferencesManager.LANGUAGE_ZH,
     val providerId: String = PreferencesManager.DEFAULT_PROVIDER_ID,
-    // 提供商选择器数据（来自 ProviderRegistry）
     val providers: List<ProviderDefinition> = emptyList(),
+    val configuredProviderIds: Set<String> = emptySet(),
     val supportsImageEdit: Boolean = true,
     val supportsModelListing: Boolean = false,
     val saveSuccess: Boolean = false,
@@ -60,12 +49,6 @@ data class SettingsState(
     val migrationMessage: String? = null,
     val isExportingLogs: Boolean = false,
 
-    // 模型管理子页面
-    val showModelManagement: Boolean = false,
-
-    // 折叠状态（默认全部展开）
-    val expandedSections: Set<String> = ALL_SECTIONS,
-
     // 默认尺寸可选项（跟随默认模型变化）
     val availableSizes: List<SizeOption> = emptyList()
 )
@@ -83,47 +66,79 @@ class SettingsViewModel(
     }
 
     fun updateApiKey(value: String) {
-        _state.update { it.copy(apiKey = value, saveSuccess = false) }
+        val savedKey = prefs.providerApiKey(_state.value.providerId).trim()
+        _state.update {
+            it.copy(
+                apiKey = value,
+                apiKeyDirty = value.trim() != savedKey,
+                saveSuccess = false
+            )
+        }
     }
 
     fun toggleApiKeyVisibility() {
         _state.update { it.copy(isApiKeyVisible = !it.isApiKeyVisible) }
     }
 
-    fun toggleSection(section: String) {
-        _state.update { state ->
-            val expanded = state.expandedSections.toMutableSet()
-            if (section in expanded) expanded.remove(section) else expanded.add(section)
-            state.copy(expandedSections = expanded)
+    fun saveApiKey() {
+        val current = _state.value
+        val trimmed = current.apiKey.trim()
+        prefs.setProviderApiKey(current.providerId, trimmed)
+        _state.update {
+            it.copy(
+                apiKey = trimmed,
+                apiKeyDirty = false,
+                configuredProviderIds = computeConfiguredProviders(),
+                saveSuccess = true
+            )
         }
     }
 
-    fun isSectionExpanded(section: String): Boolean =
-        _state.value.expandedSections.contains(section)
+    fun consumeSaveSuccess() {
+        _state.update { it.copy(saveSuccess = false) }
+    }
 
     fun selectModel(model: String) {
-        val sizes = registry.resolve(_state.value.providerId).supportedSizes(model)
+        val providerId = _state.value.providerId
+        val sizes = registry.resolve(providerId).supportedSizes(model)
         val safeSize = ensureSupportedSize(_state.value.defaultSize, sizes)
-        _state.update { it.copy(defaultModel = model, availableSizes = sizes, defaultSize = safeSize, saveSuccess = false) }
+        prefs.setDefaultModel(providerId, model)
+        if (safeSize != _state.value.defaultSize) {
+            prefs.setDefaultSize(providerId, safeSize)
+        }
+        _state.update {
+            it.copy(
+                defaultModel = model,
+                availableSizes = sizes,
+                defaultSize = safeSize
+            )
+        }
     }
 
     fun selectSize(size: String) {
-        _state.update { it.copy(defaultSize = size, saveSuccess = false) }
+        val providerId = _state.value.providerId
+        prefs.setDefaultSize(providerId, size)
+        _state.update { it.copy(defaultSize = size) }
     }
 
     fun selectLanguage(lang: String) {
+        prefs.language = lang
         _state.update { it.copy(language = lang) }
     }
 
     fun selectProvider(providerId: String) {
         if (providerId == _state.value.providerId) return
-        applyProviderState(providerId, markUnsaved = true)
+        prefs.providerId = providerId
+        applyProviderState(providerId)
     }
 
-    /** 导入备份后重新加载（模型清单可能被备份覆盖）。 */
+    /** 导入备份后重新加载（提供商、模型清单与外观偏好可能被备份覆盖）。 */
     fun reload() {
-        applyProviderState(_state.value.providerId, markUnsaved = false)
+        applyProviderState(prefs.providerId)
     }
+
+    fun readImportedAppearance(): Triple<String, String, Boolean> =
+        Triple(prefs.language, prefs.themeMode, prefs.dynamicColor)
 
     fun updateCustomGenModelInput(value: String) {
         _state.update { it.copy(customGenModelInput = value, modelManageError = null) }
@@ -257,14 +272,6 @@ class SettingsViewModel(
         _state.update { it.copy(modelRefreshMessage = null, modelRefreshFailed = false) }
     }
 
-    fun openModelManagement() {
-        _state.update { it.copy(showModelManagement = true) }
-    }
-
-    fun closeModelManagement() {
-        _state.update { it.copy(showModelManagement = false) }
-    }
-
     fun setMigrationMessage(msg: String?) {
         _state.update { it.copy(migrationMessage = msg) }
     }
@@ -277,21 +284,15 @@ class SettingsViewModel(
         _state.update { it.copy(isExportingLogs = exporting) }
     }
 
-    fun save() {
-        val state = _state.value
-        prefs.saveProviderSettings(
-            providerId = state.providerId,
-            apiKey = state.apiKey,
-            defaultModel = state.defaultModel,
-            defaultSize = state.defaultSize,
-            language = state.language
-        )
-        _state.update { it.copy(saveSuccess = true) }
+    private fun load() {
+        applyProviderState(prefs.providerId)
     }
 
-    private fun load() {
-        applyProviderState(prefs.providerId, markUnsaved = false)
-    }
+    private fun computeConfiguredProviders(): Set<String> =
+        registry.all()
+            .map { it.definition.id }
+            .filter { prefs.providerApiKey(it).isNotBlank() }
+            .toSet()
 
     private fun addCustomModel(
         input: String,
@@ -317,27 +318,32 @@ class SettingsViewModel(
      * 并在默认生成模型被关闭时回退到首个仍可用的模型。
      */
     private fun applyCatalogChange(catalog: ModelCatalog) {
-        prefs.setModelCatalog(_state.value.providerId, catalog)
+        val providerId = _state.value.providerId
+        prefs.setModelCatalog(providerId, catalog)
         _state.update { state ->
             val visible = ModelCatalogRules.visibleIds(catalog, ModelCapability.GENERATION)
             if (visible.isEmpty() || state.defaultModel in visible) {
-                state.copy(modelCatalog = catalog, saveSuccess = false)
+                state.copy(modelCatalog = catalog)
             } else {
                 val fallback = visible.first()
-                val sizes = registry.resolve(state.providerId).supportedSizes(fallback)
+                val sizes = registry.resolve(providerId).supportedSizes(fallback)
+                val safeSize = ensureSupportedSize(state.defaultSize, sizes)
+                prefs.setDefaultModel(providerId, fallback)
+                if (safeSize != state.defaultSize) {
+                    prefs.setDefaultSize(providerId, safeSize)
+                }
                 state.copy(
                     modelCatalog = catalog,
                     defaultModel = fallback,
                     availableSizes = sizes,
-                    defaultSize = ensureSupportedSize(state.defaultSize, sizes),
-                    saveSuccess = false
+                    defaultSize = safeSize
                 )
             }
         }
     }
 
     /** 按指定 providerId 加载该提供商专属的密钥、模型清单与默认模型/尺寸。 */
-    private fun applyProviderState(requestedProviderId: String, markUnsaved: Boolean) {
+    private fun applyProviderState(requestedProviderId: String) {
         val provider = registry.resolve(requestedProviderId)
         val definition = provider.definition
         val resolvedId = definition.id
@@ -355,19 +361,20 @@ class SettingsViewModel(
         _state.update {
             it.copy(
                 apiKey = prefs.providerApiKey(resolvedId),
+                apiKeyDirty = false,
                 defaultModel = effectiveDefaultModel,
                 defaultSize = safeSize,
                 language = prefs.language,
                 providerId = resolvedId,
                 providers = registry.all().map { p -> p.definition },
+                configuredProviderIds = computeConfiguredProviders(),
                 supportsImageEdit = definition.supportsImageEdit,
                 supportsModelListing = definition.supportsModelListing,
                 modelCatalog = catalog,
                 modelManageError = null,
                 modelRefreshMessage = null,
                 modelRefreshFailed = false,
-                availableSizes = sizes,
-                saveSuccess = if (markUnsaved) false else it.saveSuccess
+                availableSizes = sizes
             )
         }
     }

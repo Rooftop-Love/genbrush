@@ -5,8 +5,8 @@ plugins {
 }
 
 // 版本号唯一来源：defaultConfig 与设置页显示的 BuildConfig.APP_VERSION 都从这里派生。
-val appVersionName = "1.3"
-val appVersionCode = 4
+val appVersionName = "1.4"
+val appVersionCode = 5
 
 android {
     namespace = "com.example.genbrush"

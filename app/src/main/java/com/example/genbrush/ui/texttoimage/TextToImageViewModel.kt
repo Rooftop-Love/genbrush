@@ -28,8 +28,10 @@ data class TextToImageState(
     val negativePrompt: String = "",
     val selectedModel: String = PreferencesManager.DEFAULT_MODEL,
     val selectedSize: String = PreferencesManager.DEFAULT_SIZE,
+    val providerName: String = "",
     val isGenerating: Boolean = false,
     val resultImageFile: File? = null,
+    val resultImageId: String? = null,
     val resultImageUrl: String? = null,
     val resultPrompt: String = "",
     val resultModel: String = "",
@@ -88,10 +90,38 @@ class TextToImageViewModel(
         }
         _state.update {
             it.copy(
+                providerName = definition.displayName(prefs.language),
                 availableModels = models,
                 selectedModel = selectedModel,
                 availableSizes = sizes,
                 selectedSize = safeSize
+            )
+        }
+    }
+
+    fun applyRegenerate(
+        prompt: String,
+        negativePrompt: String?,
+        model: String,
+        size: String?
+    ) {
+        val current = _state.value
+        val provider = registry.resolve(prefs.providerId)
+        val targetModel = if (model in current.availableModels) model else current.selectedModel
+        val sizes = provider.supportedSizes(targetModel)
+        val targetSize = if (!size.isNullOrBlank() && sizes.any { it.value == size }) {
+            size
+        } else {
+            ensureSupportedSize(current.selectedSize, sizes)
+        }
+        _state.update {
+            it.copy(
+                prompt = prompt,
+                negativePrompt = negativePrompt.orEmpty(),
+                selectedModel = targetModel,
+                availableSizes = sizes,
+                selectedSize = targetSize,
+                error = null
             )
         }
     }
@@ -137,6 +167,7 @@ class TextToImageViewModel(
                 isGenerating = true,
                 error = null,
                 resultImageFile = null,
+                resultImageId = null,
                 elapsedSeconds = 0L
             )
         }
@@ -156,6 +187,7 @@ class TextToImageViewModel(
                             it.copy(
                                 isGenerating = false,
                                 resultImageFile = repository.getLocalImagePath(entry),
+                                resultImageId = entry.id,
                                 resultPrompt = entry.prompt,
                                 resultModel = entry.model
                             )

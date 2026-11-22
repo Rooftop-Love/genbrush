@@ -1,6 +1,6 @@
 # GenBrush Code Wiki
 
-> 面向 v1.3 代码状态的结构化代码地图：模块职责、关键类型、数据流、构建与约定。
+> 面向 v1.4 代码状态的结构化代码地图：模块职责、关键类型、数据流、构建与约定。
 >
 > **事实源**：`CLAUDE.md` 描述项目结构与开发约定，`README.md` 面向使用者，本文是详细版。三者冲突时以 `CLAUDE.md` 为准。
 >
@@ -27,7 +27,7 @@
 |---|---|
 | 应用 / 包名 | GenBrush / `com.example.genbrush` |
 | Gradle 模块 | 单模块 `:app` |
-| 当前版本 | 1.3（versionCode 4，2026-11-09 发布 GitHub Release `v1.3`） |
+| 当前版本 | 1.4（versionCode 5，2026-11-22 发布 GitHub Release `v1.4`） |
 | 语言 / 字节码 | Kotlin 2.2.10 / Java 11 |
 | UI | Jetpack Compose + Material 3（BOM 2026.02.01） |
 | 架构 | MVVM + Repository + Provider 抽象，手写依赖装配 |
@@ -46,7 +46,7 @@
 │  └─ FullImageViewerScreen（详情路由，直接使用 repository）      │
 ├───────────────────────────────────────────────────────────────┤
 │ GenBrushApp（Application）：OkHttp / Gson / Coil / 依赖装配     │
-│ AppNavigation：NavHost + 底部导航 + savedStateHandle 回传      │
+│ AppNavigation：NavHost + 极简底栏 + settings/models + 参数回传 │
 ├───────────────────────────────┬───────────────────────────────┤
 │ GenerationCore / Repository   │ PreferencesManager            │
 │ 编排(纯 Kotlin) + Android 适配│ EncryptedSharedPreferences    │
@@ -96,18 +96,18 @@ app/src/main/java/com/example/genbrush/
 │       └── GenerationRepository.kt  # Android 依赖适配 + 输入图编码
 └── ui/
     ├── common/ErrorMapper.kt
-    ├── components/                  # ModelSelector、SizeSelector、ImageResultCard、
-    │                                # ErrorResultCard、LoadingOverlay
+    ├── components/                  # StudioComponents、ModelPickerSheet、AspectRatioSizeSheet、
+    │                                # GeneratingCanvasPlaceholder、SizeOptionParser、ImageResultCard、ErrorResultCard
     ├── gallery/                     # GalleryScreen / GalleryViewModel / FullImageViewerScreen
     ├── imageedit/                   # ImageEditScreen / ImageEditViewModel
     ├── texttoimage/                 # TextToImageScreen / TextToImageViewModel
-    ├── settings/                    # SettingsScreen / SettingsViewModel
+    ├── settings/                    # SettingsScreen / ModelManagementScreen / SettingsViewModel
     ├── localization/                # AppStrings / LocalStrings
     ├── navigation/                  # Screen / AppNavigation
-    └── theme/                       # Color / Theme / Type
+    └── theme/                       # Color / Theme / Type / Shape
 ```
 
-资源：`res/xml/` 下含 `network_security_config.xml`、`file_provider_paths.xml`、`backup_rules.xml`、`data_extraction_rules.xml`；测试位于 `app/src/test/`（8 个 JVM 测试类 / 59 个用例）与 `app/src/androidTest/`（模板）。Room schema 基线位于 `app/schemas/`。
+资源：`res/xml/` 下含 `network_security_config.xml`、`file_provider_paths.xml`、`backup_rules.xml`、`data_extraction_rules.xml`；测试位于 `app/src/test/`（9 个 JVM 测试类 / 65 个用例）与 `app/src/androidTest/`（模板）。Room schema 基线位于 `app/schemas/`。
 
 ## 4. 模块职责
 
@@ -115,9 +115,9 @@ app/src/main/java/com/example/genbrush/
 
 | 文件 | 职责 |
 |---|---|
-| `GenBrushApp.kt` | 初始化 `AppLogStore`、`PreferencesManager`；构建单一 `OkHttpClient`（60s 连接 / 300s 读写 / 360s 调用超时，挂载 `NetworkLoggingInterceptor`，DEBUG 另加 BODY 日志并脱敏 `Authorization`、`X-API-Key`）；构造 `ProviderRegistry(DashScopeProvider, AgnesProvider)` 与 `GenerationRepository`；配置 Coil `SingletonImageLoader`（内存 25% / 磁盘 2%）；以 `language: StateFlow<String>` 驱动全局语言切换 |
-| `MainActivity.kt` | `ComponentActivity` + edge-to-edge，从 `application` 取依赖，在 `GenBrushTheme` 中挂载 `AppNavigation` |
-| `AppNavigation.kt` / `Screen.kt` | 四个底部 Tab 路由 + `gallery/image/{imageId}` 详情；通过 `viewModel(factory = ...)` 创建各 ViewModel；用 `savedStateHandle` 回传「重新生成」（prompt/model/size/negativePrompt）与「编辑此图」（图片路径） |
+| `GenBrushApp.kt` | 初始化 `AppLogStore`、`PreferencesManager`；构建单一 `OkHttpClient`（60s 连接 / 300s 读写 / 360s 调用超时，挂载 `NetworkLoggingInterceptor`，DEBUG 另加 BODY 日志并脱敏 `Authorization`、`X-API-Key`）；构造 `ProviderRegistry(DashScopeProvider, AgnesProvider)` 与 `GenerationRepository`；配置 Coil `SingletonImageLoader`（内存 25% / 磁盘 2%）；以 `language` / `themeMode` / `dynamicColor` `StateFlow` 驱动全局语言与外观切换 |
+| `MainActivity.kt` | `ComponentActivity` + edge-to-edge（随主题同步系统栏外观），从 `application` 取依赖，在 `GenBrushTheme` 中挂载 `AppNavigation` |
+| `AppNavigation.kt` / `Screen.kt` | 四个底部 Tab 路由 + `settings/models` 模型管理路由 + `gallery/image/{imageId}` 详情；通过 `viewModel(factory = ...)` 创建各 ViewModel；协调「同款生成」与「编辑此图」参数回传 |
 
 ### 4.2 Provider 层
 
@@ -158,7 +158,7 @@ app/src/main/java/com/example/genbrush/
 
 - 每个页面遵循 `MutableStateFlow<XState>` + 暴露 `StateFlow` + companion `factory(...)` 的模式。
 - `TextToImageViewModel` / `ImageEditViewModel`：维护 prompt、模型、尺寸、`isGenerating`、`elapsedSeconds`；模型列表只来自 `ModelCatalogRules.visibleIds(...)`，不再请求网络；`init` 订阅 `prefs.configVersion.drop(1)` 联动刷新且 `applyDefaults = false`，因此配置变化不会重置用户已选中的模型；持 `generationJob` / `timerJob`，`stopGeneration()` 取消生成并停止计时。
-- `SettingsViewModel`：按 provider 加载 API Key、模型清单缓存、默认模型与尺寸；清单开关与自定义模型增删即时写入 `PreferencesManager.setModelCatalog` 并联动生成页；`refreshRemoteModels()` 手动调用 `provider.fetchModels` 并只合并新增 id；`save()` 通过 `saveProviderSettings()` 一次性写入主要配置。
+- `SettingsViewModel`：按 provider 加载 API Key、模型清单缓存、默认模型与尺寸；选择提供商、默认模型/尺寸、语言、模型开关及自定义模型增删均即时落盘；API Key 在表单内点击确认保存；`refreshRemoteModels()` 手动调用 `provider.fetchModels` 并只合并新增 id。
 - `GalleryViewModel`：`computeDisplayedImages` 在 state 内组合筛选与排序；多选批量删除/收藏；`SaveResult` 为一次性事件，UI 展示后 `consumeSaveResult()`。
 - `FullImageViewerScreen`：`HorizontalPager` + 每页独立 zoom state，缩放时禁用翻页；支持保存/分享/删除与回传重新生成、编辑。
 - `AppStrings.kt` / `LocalStrings.kt`：ZH / EN 两套文案 + `staticCompositionLocalOf`，`resolveAppStrings` 处理 `system`；`ErrorMapper` 把 `ProviderException` 与常见错误关键词映射为本地化提示。
@@ -232,7 +232,7 @@ app/src/main/java/com/example/genbrush/
 ```bash
 ./gradlew assembleDebug          # debug APK
 ./gradlew assembleRelease        # release APK（有凭据才签名）
-./gradlew test                   # JVM 单测：8 个测试类 / 59 个用例
+./gradlew test                   # JVM 单测：9 个测试类 / 65 个用例
 ./gradlew lintDebug              # Android lint（CI 中执行）
 ./gradlew connectedAndroidTest   # 设备测试（当前仅模板）
 ```
@@ -240,8 +240,8 @@ app/src/main/java/com/example/genbrush/
 - `settings.gradle.kts` 在非 CI 环境启用阿里云 Maven 镜像；`FAIL_ON_PROJECT_REPOS` 强制集中管理仓库。
 - 依赖版本集中在 `gradle/libs.versions.toml`，Compose 由 BOM 统一；Java 11 兼容；`buildConfig = true`、`compose = true`。
 - **签名**：版本库不含任何凭据。`app/build.gradle.kts` 从 Gradle property 或环境变量读取 `SIGNING_STORE_PASSWORD` / `SIGNING_KEY_PASSWORD` / `SIGNING_KEY_ALIAS`，仅在项目根目录存在 `genbrush-release.jks` 且密码可用时创建 release signing config。缺失时构建不报错，release 输出 `app-release-unsigned.apk`。本地凭据放 `~/.gradle/gradle.properties` 或 `-P`；CI 由 secrets 注入。
-- **CI**：`android.yml` 在 push / PR 执行 `assembleDebug` + `test` + `lintDebug` 并上传 debug APK；`release.yml` 在 `v*` tag 时校验签名 secrets、恢复 keystore、构建 release 并发布 GitHub Release。`v1.1` / `v1.2` / `v1.3` tag 均在；v1.2 于 2026-11-07、v1.3 于 2026-11-09 发布（asset 均为 `app-release.apk`，约 14MB，V2 签名）。
-- **签名证书轮换**：v1.2 使用 2026-11-07 轮换后的新证书，与 v1.1 不同，v1.1 用户无法覆盖升级，需卸载重装；v1.3 沿用 v1.2 证书，v1.2 用户可直接覆盖安装。
+- **CI**：`android.yml` 在 push / PR 执行 `assembleDebug` + `test` + `lintDebug` 并上传 debug APK；`release.yml` 在 `v*` tag 时校验签名 secrets、恢复 keystore、构建 release 并发布 GitHub Release。`v1.1` / `v1.2` / `v1.3` / `v1.4` tag 均在；v1.2 于 2026-11-07、v1.3 于 2026-11-09、v1.4 于 2026-11-22 发布（asset 均为 `app-release.apk`，V2 签名）。
+- **签名证书轮换**：v1.2 使用 2026-11-07 轮换后的新证书，与 v1.1 不同，v1.1 用户无法覆盖升级，需卸载重装；v1.3 与 v1.4 沿用 v1.2 证书，v1.2/v1.3 用户可直接覆盖安装。
 - CI 已运行 `lintDebug`（error 阻断构建，warning 不阻断）；未配置 ktlint / detekt，`CONTRIBUTING.md` 已改为实际存在的命令。
 
 ## 9. 约定与已知限制
@@ -263,4 +263,5 @@ app/src/main/java/com/example/genbrush/
 |---|---|
 | v1.1 及更早 | DashScope + SD WebUI 双后端，LoRA 选择器，`data/remote/` 远程层，`backend_type` 配置 |
 | v1.2 | 移除 SD WebUI / LoRA；引入 `ImageProvider` / `ProviderDefinition` / `ProviderRegistry`；新增 Agnes AI；配置按提供商命名空间化并兼容旧键；新增诊断日志、可取消生成、qwen-image-3.0 支持、发布签名与 CI；版本号 1.2 / versionCode 3，2026-11-07 打 tag 并发布 GitHub Release（签名证书已轮换） |
-| v1.3（当前代码） | 引入持久化模型清单 `ModelCatalog`（按提供商命名空间、旧配置迁移、升级只补新增内置项）；两家 provider 接入 OpenAI 兼容 `GET /models`，设置页手动刷新并只合并新增的上游图像模型；模型开关与自定义增删即时写盘并联动生成页；移除生成页自动拉取与配置变化重置选中模型；`saveProviderSettings()` 合并配置写入；设置页版本号改由 `BuildConfig.APP_VERSION` 单一来源驱动；新增 `ModelCatalogTest`（13 例，共 8 个测试类 / 59 用例）；版本号 1.3 / versionCode 4，2026-11-09 打 tag 并发布 GitHub Release（沿用 v1.2 签名证书） |
+| v1.3 | 引入持久化模型清单 `ModelCatalog`（按提供商命名空间、旧配置迁移、升级只补新增内置项）；两家 provider 接入 OpenAI 兼容 `GET /models`，设置页手动刷新并只合并新增的上游图像模型；模型开关与自定义增删即时写盘并联动生成页；移除生成页自动拉取与配置变化重置选中模型；`saveProviderSettings()` 合并配置写入；设置页版本号改由 `BuildConfig.APP_VERSION` 单一来源驱动；新增 `ModelCatalogTest`（13 例，共 8 个测试类 / 59 用例）；版本号 1.3 / versionCode 4，2026-11-09 打 tag 并发布 GitHub Release（沿用 v1.2 签名证书） |
+| v1.4（当前代码） | Studio Minimal 界面与交互全面重构：重构浅色纸白/深色暗房炭黑配色、排版与圆角体系；新增应用内 `theme_mode`（跟随系统/浅色/深色）与 `dynamic_color`（默认关闭）持久化，修复暗色冷启动闪白与 Edge-to-Edge 双留白；文生图/图像编辑改为画布优先 + 底部控制坞，新增可视化画幅比例与清晰度抽屉 `AspectRatioSizeSheet`、`ModelPickerSheet`、`GeneratingCanvasPlaceholder`，图像编辑支持长按对比原图与继续编辑；相册升级为真实画幅瀑布流 + 折叠搜索 + 底部悬浮多选坞，看图器重构为全屏纯黑画布与弹簧缩放，修复同款再生成/编辑回传；设置页重构为静态分组列表与行内 API Key 保存，拆分独立 `settings/models` 路由页；新增 `SizeOptionParserTest`（共 9 个测试类 / 65 用例）；版本号 1.4 / versionCode 5，2026-11-22 打 tag 并发布 GitHub Release（沿用 v1.2 签名证书） |

@@ -175,4 +175,17 @@ class PreferenceKeysTest {
         assertFalse(PreferenceKeys.isProviderScoped("language"))
         assertFalse(PreferenceKeys.isProviderScoped("backend_type"))
     }
+
+    @Test
+    fun `外观主题与动态取色偏好可从备份导入`() {
+        val settings = mapOf(
+            "theme_mode" to "dark",
+            "dynamic_color" to "true"
+        )
+
+        val resolved = PreferenceKeys.resolveImported(settings, "dashscope")
+
+        assertEquals("dark", resolved["theme_mode"])
+        assertEquals("true", resolved["dynamic_color"])
+    }
 }

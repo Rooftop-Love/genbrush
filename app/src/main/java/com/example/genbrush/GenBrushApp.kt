@@ -38,9 +38,25 @@ class GenBrushApp : Application() {
     private val _language = MutableStateFlow("")
     val language: StateFlow<String> = _language.asStateFlow()
 
+    private val _themeMode = MutableStateFlow(PreferencesManager.THEME_SYSTEM)
+    val themeMode: StateFlow<String> = _themeMode.asStateFlow()
+
+    private val _dynamicColor = MutableStateFlow(false)
+    val dynamicColor: StateFlow<Boolean> = _dynamicColor.asStateFlow()
+
     fun setLanguage(lang: String) {
         prefs.language = lang
         _language.value = lang
+    }
+
+    fun setThemeMode(mode: String) {
+        prefs.themeMode = mode
+        _themeMode.value = mode
+    }
+
+    fun setDynamicColor(enabled: Boolean) {
+        prefs.dynamicColor = enabled
+        _dynamicColor.value = enabled
     }
 
     override fun onCreate() {
@@ -81,6 +97,8 @@ class GenBrushApp : Application() {
         repository = GenerationRepository(providerRegistry, imageStore, prefs)
 
         _language.value = prefs.language
+        _themeMode.value = prefs.themeMode
+        _dynamicColor.value = prefs.dynamicColor
 
         SingletonImageLoader.setSafe { context ->
             ImageLoader.Builder(context)

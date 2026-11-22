@@ -15,14 +15,14 @@ AI 图像生成与编辑 Android 应用，基于 Jetpack Compose 构建。采用
 - **数据迁移** — ZIP 导出/导入图片、元数据与设置（兼容旧版备份格式）
 - **诊断日志** — 应用内记录最近日志（自动脱敏），设置页一键导出
 - **安全存储** — API Key 与偏好设置经 `EncryptedSharedPreferences`（AES-256）加密存储
-- **Material 3** — Android 12+ 动态取色；中英双语，支持跟随系统
+- **Material 3 / Studio Minimal** — 浅色纸白与深色暗房炭黑双主题（跟随系统 / 浅色 / 深色切换），支持 Android 12+ 可选动态取色（默认关闭）；中英双语，支持跟随系统
 
-## What's new in v1.3
+## What's new in v1.4
 
-- **模型清单缓存**：模型列表不再写死在代码里，而是按提供商持久化缓存。首次启动由内置预设播种，并自动迁移旧版的「禁用 / 自定义模型」配置；后续版本升级只补齐新增内置项，不会重置你调过的开关。
-- **手动发现上游模型**：设置 → 图像服务 → 模型管理 → 「从上游获取模型」，通过 DashScope / Agnes 的 OpenAI 兼容 `/models` 端点拉取图像模型。只新增缓存里没有的条目，失败或返回空时清单保持原样，并显示上次更新时间与具体原因。
-- **开关即显示**：清单里每一项（内置 / 上游 / 自定义）都能直接勾选，改动立即写盘并联动文生图、图像编辑页的下拉，无需再点「保存设置」。
-- **其他改进**：修复设置保存后生成页选中的模型被重置、模型管理部分文案未本地化；版本号改由构建配置单一来源驱动，设置页「关于」不再写死。
+- **Studio Minimal 视觉重构**：全新浅色纸白 / 深色暗房炭黑配色与蓝紫微光点缀，支持应用内外观主题切换（跟随系统 / 浅色 / 深色）与可选动态壁纸取色，修复暗色冷启动闪白与双倍状态栏留白。
+- **创作工作台升级**：文生图与图像编辑升级为「画布优先 + 底部控制坞」布局；新增可视化画幅比例与清晰度（1K/2K/4K）选择抽屉、极光流光生成占位与等宽计时器；图像编辑支持「长按对比原图」与「继续编辑」迭代闭环。
+- **瀑布流画廊与纯黑沉浸看图器**：相册升级为按真实画幅展示的无遮罩瀑布流、折叠式搜索与底部悬浮多选工具坞；看图器改为全屏纯黑画布，支持单击显隐界面、弹簧双击缩放及一键同款再生成 / 去编辑。
+- **分组设置与独立模型管理**：设置页重构为静态分组列表（含服务商密钥状态微标与行内保存）；模型管理拆分为独立路由页，提供文生图 / 编辑双 Tab、`Switch` 开关与来源徽标。
 
 ## Requirements
 
@@ -119,14 +119,14 @@ app/src/main/java/com/example/genbrush/
 │       └── GenerationRepository.kt  # Android 依赖适配、输入图编码
 └── ui/
     ├── common/                     # ErrorMapper（错误本地化映射）
-    ├── components/                 # ModelSelector、SizeSelector、结果/错误/加载卡片
-    ├── gallery/                    # 相册列表、GalleryViewModel、全屏查看器
+    ├── components/                 # ModelPickerSheet、AspectRatioSizeSheet、画布占位/结果/错误卡片
+    ├── gallery/                    # 瀑布流相册、GalleryViewModel、全屏沉浸查看器
     ├── imageedit/                  # 图像编辑界面与 ViewModel
     ├── texttoimage/                # 文生图界面与 ViewModel
-    ├── settings/                   # 提供商/API/模型/语言/迁移/日志导出
+    ├── settings/                   # 分组设置、独立模型管理页、迁移与日志导出
     ├── localization/               # AppStrings（ZH/EN）与 LocalStrings
-    ├── navigation/                 # 底部导航与图片详情路由
-    └── theme/                      # Material 3 主题
+    ├── navigation/                 # 极简底栏导航、模型管理与图片详情路由
+    └── theme/                      # Studio Minimal 浅/深色主题、排版与圆角规范
 ```
 
 更完整的模块说明、数据流与约定参见 [docs/CODE_WIKI.md](docs/CODE_WIKI.md)。
@@ -141,7 +141,7 @@ app/src/main/java/com/example/genbrush/
 
 ## Testing
 
-`./gradlew test` 运行 JVM 单元测试，覆盖 API 数据模型与尺寸参数转换、错误映射、日志脱敏、配置迁移、模型清单合并规则与生成编排（8 个测试类 / 59 个用例）。`./gradlew connectedAndroidTest` 需要设备或模拟器，目前仅有模板用例。CI（`android.yml`）在 push / PR 时执行 `assembleDebug` + `test` + `lintDebug` 并上传 debug APK。
+`./gradlew test` 运行 JVM 单元测试，覆盖 API 数据模型与尺寸参数转换、画幅解析、错误映射、日志脱敏、配置迁移、模型清单合并规则与生成编排（9 个测试类 / 65 个用例）。`./gradlew connectedAndroidTest` 需要设备或模拟器，目前仅有模板用例。CI（`android.yml`）在 push / PR 时执行 `assembleDebug` + `test` + `lintDebug` 并上传 debug APK。
 
 ## Contributing
 

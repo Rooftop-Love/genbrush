@@ -30,9 +30,11 @@ data class ImageEditState(
     val prompt: String = "",
     val selectedModel: String = "",
     val selectedSize: String = PreferencesManager.DEFAULT_SIZE,
+    val providerName: String = "",
     val supportsImageEdit: Boolean = true,
     val isGenerating: Boolean = false,
     val resultImageFile: File? = null,
+    val resultImageId: String? = null,
     val resultPrompt: String = "",
     val resultModel: String = "",
     val error: String? = null,
@@ -90,6 +92,7 @@ class ImageEditViewModel(
         }
         _state.update {
             it.copy(
+                providerName = definition.displayName(prefs.language),
                 supportsImageEdit = definition.supportsImageEdit,
                 availableModels = models,
                 selectedModel = selectedModel,
@@ -100,7 +103,18 @@ class ImageEditViewModel(
     }
 
     fun setSourceImage(uri: Uri?) {
-        _state.update { it.copy(sourceImageUri = uri) }
+        _state.update {
+            it.copy(
+                sourceImageUri = uri,
+                resultImageFile = null,
+                resultImageId = null,
+                error = null
+            )
+        }
+    }
+
+    fun setSourceImageFromFile(file: File) {
+        setSourceImage(Uri.fromFile(file))
     }
 
     fun updatePrompt(value: String) {
@@ -144,6 +158,7 @@ class ImageEditViewModel(
                 isGenerating = true,
                 error = null,
                 resultImageFile = null,
+                resultImageId = null,
                 elapsedSeconds = 0L
             )
         }
@@ -164,6 +179,7 @@ class ImageEditViewModel(
                             it.copy(
                                 isGenerating = false,
                                 resultImageFile = repository.getLocalImagePath(entry),
+                                resultImageId = entry.id,
                                 resultPrompt = entry.prompt,
                                 resultModel = entry.model
                             )

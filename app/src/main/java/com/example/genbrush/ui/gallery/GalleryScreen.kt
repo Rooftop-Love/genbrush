@@ -2,9 +2,16 @@ package com.example.genbrush.ui.gallery
 
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Intent
-import android.text.format.DateUtils
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,65 +28,78 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Sort
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import com.example.genbrush.ui.components.SizeOptionParser
+import com.example.genbrush.ui.components.StudioEmptyState
+import com.example.genbrush.ui.components.StudioHeader
+import com.example.genbrush.ui.components.StudioPill
+import com.example.genbrush.ui.components.shareImage
 import com.example.genbrush.ui.localization.LocalStrings
+import com.example.genbrush.ui.theme.FavoriteGold
+import com.example.genbrush.ui.theme.studioColors
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GalleryScreen(
     viewModel: GalleryViewModel,
@@ -87,14 +107,27 @@ fun GalleryScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val s = LocalStrings.current
+
     var showSortMenu by remember { mutableStateOf(false) }
+    var showSearch by rememberSaveable { mutableStateOf(state.searchQuery.isNotEmpty()) }
+    val searchFocusRequester = remember { FocusRequester() }
+
+    BackHandler(enabled = state.selectionMode) {
+        viewModel.exitSelectionMode()
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         viewModel.loadImages()
     }
 
-    // Bug #12 fix: Observe saveResult and show toast in UI layer
+    LaunchedEffect(showSearch) {
+        if (showSearch) {
+            searchFocusRequester.requestFocus()
+        }
+    }
+
     val saveResult = state.saveResult
     LaunchedEffect(saveResult) {
         when (val r = saveResult) {
@@ -106,28 +139,42 @@ fun GalleryScreen(
                 Toast.makeText(context, s.errSaveFailed + r.message, Toast.LENGTH_SHORT).show()
                 viewModel.consumeSaveResult()
             }
-            null -> { /* no-op */ }
+            null -> Unit
         }
     }
 
-    // Delete confirmation dialog (single or batch)
-    state.pendingDelete?.let { pendingEntry ->
+    state.pendingDelete?.let {
         val isBatch = viewModel.isBatchDeletePending()
         AlertDialog(
             onDismissRequest = { viewModel.cancelDelete() },
-            title = { Text(s.deleteConfirmTitle) },
+            shape = RoundedCornerShape(24.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = {
+                Text(
+                    text = s.deleteConfirmTitle,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            },
             text = {
                 Text(
-                    if (isBatch) s.galleryBatchDeleteConfirm.format(state.selectedIds.size)
-                    else s.deleteConfirmMessage
+                    text = if (isBatch) {
+                        s.galleryBatchDeleteConfirm.format(state.selectedIds.size)
+                    } else {
+                        s.deleteConfirmMessage
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
             confirmButton = {
                 TextButton(onClick = {
-                    if (isBatch) viewModel.confirmBatchDelete()
-                    else viewModel.confirmDelete()
+                    if (isBatch) viewModel.confirmBatchDelete() else viewModel.confirmDelete()
                 }) {
-                    Text(s.commonConfirm)
+                    Text(
+                        text = s.commonConfirm,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             },
             dismissButton = {
@@ -139,374 +186,591 @@ fun GalleryScreen(
     }
 
     val displayedImages = state.displayedImages
+    val studioColors = MaterialTheme.studioColors
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Top bar: selection mode vs normal mode
-        if (state.selectionMode) {
-            TopAppBar(
-                title = { Text(s.gallerySelectedCount.format(state.selectedIds.size)) },
-                navigationIcon = {
-                    IconButton(onClick = { viewModel.exitSelectionMode() }) {
-                        Icon(Icons.Default.Close, contentDescription = null)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Header
+            if (state.selectionMode) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HeaderIconCircleButton(
+                        icon = Icons.Rounded.Close,
+                        contentDescription = s.commonCancel,
+                        onClick = { viewModel.exitSelectionMode() }
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = s.gallerySelectedCount.format(state.selectedIds.size),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = { viewModel.selectAll() }) {
+                        Text(
+                            text = s.gallerySelectAll,
+                            style = MaterialTheme.typography.labelLarge
+                        )
                     }
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.selectAll() }) {
-                        Icon(Icons.Default.SelectAll, contentDescription = s.gallerySelectAll)
-                    }
-                    IconButton(onClick = { viewModel.batchFavorite() }) {
-                        Icon(Icons.Default.Star, contentDescription = s.galleryBatchFavorite)
-                    }
-                    IconButton(onClick = { viewModel.requestBatchDelete() }) {
-                        Icon(Icons.Default.Delete, contentDescription = s.galleryBatchDelete)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            )
-        } else {
-            TopAppBar(
-                title = { Text(s.galleryTitle) },
-                actions = {
-                    // Sort button
-                    Box {
-                        IconButton(onClick = { showSortMenu = true }) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Sort,
+                }
+            } else {
+                StudioHeader(
+                    title = s.galleryTitle,
+                    countBadge = state.images.size.takeIf { it > 0 }?.toString(),
+                    actions = {
+                        HeaderIconCircleButton(
+                            icon = Icons.Rounded.Search,
+                            contentDescription = s.gallerySearchHint,
+                            active = showSearch || state.searchQuery.isNotEmpty(),
+                            onClick = { showSearch = !showSearch }
+                        )
+                        Box {
+                            HeaderIconCircleButton(
+                                icon = Icons.AutoMirrored.Rounded.Sort,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                active = state.sortMode != SortMode.TIME_DESC,
+                                onClick = { showSortMenu = true }
                             )
-                        }
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(s.gallerySortNewest) },
-                                onClick = { viewModel.updateSortMode(SortMode.TIME_DESC); showSortMenu = false }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(s.gallerySortOldest) },
-                                onClick = { viewModel.updateSortMode(SortMode.TIME_ASC); showSortMenu = false }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(s.gallerySortFavFirst) },
-                                onClick = { viewModel.updateSortMode(SortMode.FAVORITE_FIRST); showSortMenu = false }
-                            )
-                        }
-                    }
-                    // Favorite filter
-                    IconButton(onClick = { viewModel.toggleFavoriteFilter() }) {
-                        Icon(
-                            imageVector = if (state.showFavoritesOnly) Icons.Filled.Star else Icons.Outlined.Star,
-                            contentDescription = s.galleryShowFavorites,
-                            tint = if (state.showFavoritesOnly) MaterialTheme.colorScheme.primary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    // Enter selection mode
-                    IconButton(onClick = { viewModel.enterSelectionMode(null) }) {
-                        Icon(
-                            imageVector = Icons.Default.SelectAll,
-                            contentDescription = s.gallerySelectMode,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        }
-
-        // Search bar (hidden in selection mode)
-        if (!state.selectionMode) {
-            OutlinedTextField(
-                value = state.searchQuery,
-                onValueChange = { viewModel.updateSearchQuery(it) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                placeholder = { Text(s.gallerySearchHint) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (state.searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.updateSearchQuery("") }) {
-                            Icon(Icons.Default.Close, contentDescription = null)
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
-            )
-
-            // Type filter chips
-            LazyRow(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item {
-                    FilterChip(
-                        selected = state.typeFilter == null,
-                        onClick = { viewModel.updateTypeFilter(null) },
-                        label = { Text(s.galleryFilterAll) }
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = state.typeFilter == "text_to_image",
-                        onClick = { viewModel.updateTypeFilter("text_to_image") },
-                        label = { Text(s.galleryFilterTxt2img) }
-                    )
-                }
-                item {
-                    FilterChip(
-                        selected = state.typeFilter == "image_edit",
-                        onClick = { viewModel.updateTypeFilter("image_edit") },
-                        label = { Text(s.galleryFilterEdit) }
-                    )
-                }
-            }
-        }
-
-        if (state.isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        } else if (displayedImages.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Outlined.PhotoLibrary,
-                        contentDescription = null,
-                        modifier = Modifier.size(72.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        s.galleryEmpty,
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        s.galleryEmptyHint,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        } else {
-            val gridState = rememberLazyGridState()
-            LazyVerticalGrid(
-                state = gridState,
-                columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(displayedImages, key = { it.id }) { entry ->
-                    var showMenu by remember { mutableStateOf(false) }
-                    val file = remember(entry) { viewModel.getLocalImagePath(entry) }
-                    val isSelected = entry.id in state.selectedIds
-
-                    Box {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1f)
-                                .then(
-                                    if (isSelected) Modifier.border(
-                                        width = 3.dp,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) else Modifier
-                                )
-                                .combinedClickable(
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false }
+                            ) {
+                                SortModeOptionItem(
+                                    label = s.gallerySortNewest,
+                                    selected = state.sortMode == SortMode.TIME_DESC,
                                     onClick = {
-                                        if (state.selectionMode) {
-                                            viewModel.toggleSelection(entry.id)
+                                        viewModel.updateSortMode(SortMode.TIME_DESC)
+                                        showSortMenu = false
+                                    }
+                                )
+                                SortModeOptionItem(
+                                    label = s.gallerySortOldest,
+                                    selected = state.sortMode == SortMode.TIME_ASC,
+                                    onClick = {
+                                        viewModel.updateSortMode(SortMode.TIME_ASC)
+                                        showSortMenu = false
+                                    }
+                                )
+                                SortModeOptionItem(
+                                    label = s.gallerySortFavFirst,
+                                    selected = state.sortMode == SortMode.FAVORITE_FIRST,
+                                    onClick = {
+                                        viewModel.updateSortMode(SortMode.FAVORITE_FIRST)
+                                        showSortMenu = false
+                                    }
+                                )
+                            }
+                        }
+                        if (displayedImages.isNotEmpty()) {
+                            HeaderIconCircleButton(
+                                icon = Icons.Rounded.Checklist,
+                                contentDescription = s.gallerySelectMode,
+                                onClick = { viewModel.enterSelectionMode(null) }
+                            )
+                        }
+                    }
+                )
+            }
+
+            // Collapsible Search Pill
+            AnimatedVisibility(
+                visible = showSearch && !state.selectionMode,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = BorderStroke(1.dp, studioColors.hairline),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .padding(bottom = 6.dp)
+                        .height(42.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (state.searchQuery.isEmpty()) {
+                                Text(
+                                    text = s.gallerySearchHint,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                                )
+                            }
+                            BasicTextField(
+                                value = state.searchQuery,
+                                onValueChange = viewModel::updateSearchQuery,
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                    color = MaterialTheme.colorScheme.onSurface
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(searchFocusRequester)
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                if (state.searchQuery.isNotEmpty()) {
+                                    viewModel.updateSearchQuery("")
+                                } else {
+                                    showSearch = false
+                                }
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Single-row Filter Pills
+            AnimatedVisibility(visible = !state.selectionMode) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        StudioPill(
+                            text = s.galleryFilterAll,
+                            selected = state.typeFilter == null,
+                            onClick = { viewModel.updateTypeFilter(null) }
+                        )
+                    }
+                    item {
+                        StudioPill(
+                            text = s.galleryFilterTxt2img,
+                            selected = state.typeFilter == "text_to_image",
+                            onClick = { viewModel.updateTypeFilter("text_to_image") }
+                        )
+                    }
+                    item {
+                        StudioPill(
+                            text = s.galleryFilterEdit,
+                            selected = state.typeFilter == "image_edit",
+                            onClick = { viewModel.updateTypeFilter("image_edit") }
+                        )
+                    }
+                    item {
+                        StudioPill(
+                            text = s.galleryFavoritesChip,
+                            icon = if (state.showFavoritesOnly) Icons.Rounded.Star else Icons.Outlined.Star,
+                            selected = state.showFavoritesOnly,
+                            onClick = { viewModel.toggleFavoriteFilter() }
+                        )
+                    }
+                }
+            }
+
+            // Content Area
+            when {
+                state.isLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            strokeWidth = 2.5.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                state.images.isEmpty() -> {
+                    StudioEmptyState(
+                        icon = Icons.Outlined.PhotoLibrary,
+                        title = s.galleryEmpty,
+                        subtitle = s.galleryEmptyHint
+                    )
+                }
+
+                displayedImages.isEmpty() -> {
+                    StudioEmptyState(
+                        icon = Icons.Outlined.SearchOff,
+                        title = s.galleryEmptyFiltered,
+                        subtitle = s.galleryEmptyFilteredHint,
+                        actionLabel = s.galleryClearFilter,
+                        onAction = {
+                            viewModel.updateSearchQuery("")
+                            viewModel.updateTypeFilter(null)
+                            if (state.showFavoritesOnly) viewModel.toggleFavoriteFilter()
+                            showSearch = false
+                        }
+                    )
+                }
+
+                else -> {
+                    val gridState = rememberLazyStaggeredGridState()
+                    LazyVerticalStaggeredGrid(
+                        state = gridState,
+                        columns = StaggeredGridCells.Fixed(2),
+                        contentPadding = PaddingValues(
+                            start = 12.dp,
+                            end = 12.dp,
+                            top = 6.dp,
+                            bottom = if (state.selectionMode) 96.dp else 20.dp
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalItemSpacing = 10.dp,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(displayedImages, key = { it.id }) { entry ->
+                            var showMenu by remember { mutableStateOf(false) }
+                            val file = remember(entry) { viewModel.getLocalImagePath(entry) }
+                            val isSelected = entry.id in state.selectedIds
+                            val aspectRatio = remember(entry.size) {
+                                SizeOptionParser.parseAspectRatio(
+                                    size = entry.size,
+                                    minRatio = 0.62f,
+                                    maxRatio = 1.55f
+                                )
+                            }
+
+                            Box {
+                                val cardShape = RoundedCornerShape(14.dp)
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(aspectRatio)
+                                        .clip(cardShape)
+                                        .then(
+                                            if (isSelected) {
+                                                Modifier.border(2.5.dp, MaterialTheme.colorScheme.primary, cardShape)
+                                            } else {
+                                                Modifier.border(1.dp, studioColors.hairline, cardShape)
+                                            }
+                                        )
+                                        .combinedClickable(
+                                            onClick = {
+                                                if (state.selectionMode) {
+                                                    viewModel.toggleSelection(entry.id)
+                                                } else {
+                                                    onImageClick(entry.id)
+                                                }
+                                            },
+                                            onLongClick = {
+                                                if (!state.selectionMode) {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    showMenu = true
+                                                }
+                                            }
+                                        ),
+                                    shape = cardShape,
+                                    color = MaterialTheme.colorScheme.surfaceContainerLow
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        if (file.exists()) {
+                                            AsyncImage(
+                                                model = ImageRequest.Builder(context)
+                                                    .data(file)
+                                                    .crossfade(280)
+                                                    .build(),
+                                                contentDescription = entry.prompt,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
                                         } else {
-                                            onImageClick(entry.id)
+                                            Box(
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = s.galleryImageNotFound,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
                                         }
-                                    },
-                                    onLongClick = {
-                                        if (!state.selectionMode) {
-                                            showMenu = true
+
+                                        if (state.selectionMode) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(
+                                                        if (isSelected) {
+                                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                                                        } else {
+                                                            Color.Black.copy(alpha = 0.1f)
+                                                        }
+                                                    )
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Rounded.CheckCircle,
+                                                contentDescription = null,
+                                                modifier = Modifier
+                                                    .align(Alignment.TopStart)
+                                                    .padding(8.dp)
+                                                    .size(24.dp),
+                                                tint = if (isSelected) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    Color.White.copy(alpha = 0.78f)
+                                                }
+                                            )
+                                        }
+
+                                        if (entry.isFavorite && !state.selectionMode) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = studioColors.frostedDark,
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(8.dp)
+                                                    .size(24.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Star,
+                                                        contentDescription = null,
+                                                        tint = FavoriteGold,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
-                                ),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                if (file.exists()) {
-                                    AsyncImage(
-                                        model = file,
-                                        contentDescription = entry.prompt,
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .clip(RoundedCornerShape(8.dp)),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.Center
+                                }
+
+                                if (!state.selectionMode) {
+                                    DropdownMenu(
+                                        expanded = showMenu,
+                                        onDismissRequest = { showMenu = false }
                                     ) {
-                                        Text(
-                                            s.galleryImageNotFound,
-                                            style = MaterialTheme.typography.bodySmall
+                                        DropdownMenuItem(
+                                            text = { Text(if (entry.isFavorite) s.galleryUnfavorite else s.galleryFavorite) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = if (entry.isFavorite) Icons.Rounded.Star else Icons.Outlined.Star,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                viewModel.toggleFavorite(entry)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(s.gallerySave) },
+                                            leadingIcon = {
+                                                Icon(Icons.Rounded.Download, null, Modifier.size(18.dp))
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                viewModel.saveToDeviceGallery(entry, context)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(s.galleryShare) },
+                                            leadingIcon = {
+                                                Icon(Icons.Rounded.Share, null, Modifier.size(18.dp))
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                if (file.exists()) {
+                                                    shareImage(context, file, s.galleryShareTitle)
+                                                }
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text(s.galleryCopyPrompt) },
+                                            leadingIcon = {
+                                                Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp))
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                val clipboard = context.getSystemService(ClipboardManager::class.java)
+                                                clipboard.setPrimaryClip(ClipData.newPlainText("prompt", entry.prompt))
+                                                Toast.makeText(context, s.galleryPromptCopied, Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = s.galleryDelete,
+                                                    color = MaterialTheme.colorScheme.error
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.DeleteOutline,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                viewModel.requestDelete(entry)
+                                            }
                                         )
                                     }
                                 }
-
-                                // Selection checkmark overlay
-                                if (state.selectionMode) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(
-                                                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                                                else Color.Transparent
-                                            )
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Filled.CheckCircle,
-                                        contentDescription = null,
-                                        modifier = Modifier
-                                            .align(Alignment.TopStart)
-                                            .padding(6.dp)
-                                            .size(24.dp),
-                                        tint = if (isSelected) MaterialTheme.colorScheme.primary
-                                               else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                }
-
-                                // Favorite badge
-                                if (entry.isFavorite && !state.selectionMode) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Star,
-                                        contentDescription = null,
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(6.dp)
-                                            .size(20.dp)
-                                            .background(
-                                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                                shape = CircleShape
-                                            )
-                                            .padding(2.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-
-                                // Gradient overlay with prompt + model + time (hidden in selection mode)
-                                if (!state.selectionMode) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .align(Alignment.BottomCenter)
-                                            .background(
-                                                brush = Brush.verticalGradient(
-                                                    colors = listOf(
-                                                        Color.Transparent,
-                                                        Color.Black.copy(alpha = 0.7f)
-                                                    )
-                                                )
-                                            )
-                                            .padding(8.dp)
-                                    ) {
-                                        Column {
-                                            Text(
-                                                text = entry.prompt,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                                color = Color.White
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = "${entry.model} · ${DateUtils.getRelativeTimeSpanString(entry.timestamp, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                color = Color.White.copy(alpha = 0.7f)
-                                            )
-                                        }
-                                    }
-                                }
                             }
                         }
+                    }
+                }
+            }
+        }
 
-                        // Context menu (only in non-selection mode)
-                        if (!state.selectionMode) {
-                            DropdownMenu(
-                                expanded = showMenu,
-                                onDismissRequest = { showMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text(if (entry.isFavorite) s.galleryUnfavorite else s.galleryFavorite) },
-                                    onClick = {
-                                        showMenu = false
-                                        viewModel.toggleFavorite(entry)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(s.gallerySave) },
-                                    onClick = {
-                                        showMenu = false
-                                        viewModel.saveToDeviceGallery(entry, context)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(s.galleryShare) },
-                                    onClick = {
-                                        showMenu = false
-                                        if (file.exists()) {
-                                            val uri = FileProvider.getUriForFile(
-                                                context,
-                                                "${context.packageName}.fileprovider",
-                                                file
-                                            )
-                                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                                type = "image/jpeg"
-                                                putExtra(Intent.EXTRA_STREAM, uri)
-                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            }
-                                            context.startActivity(Intent.createChooser(intent, s.galleryShareTitle))
-                                        }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(s.galleryDelete) },
-                                    onClick = {
-                                        showMenu = false
-                                        viewModel.requestDelete(entry)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(s.galleryCopyPrompt) },
-                                    onClick = {
-                                        showMenu = false
-                                        val clipboard = context.getSystemService(ClipboardManager::class.java)
-                                        clipboard.setPrimaryClip(ClipData.newPlainText("prompt", entry.prompt))
-                                        Toast.makeText(context, s.galleryPromptCopied, Toast.LENGTH_SHORT).show()
-                                    }
-                                )
+        // Floating Bottom Batch Selection Dock
+        AnimatedVisibility(
+            visible = state.selectionMode,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 20.dp, vertical = 16.dp)
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 10.dp,
+                border = BorderStroke(1.dp, studioColors.hairline)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val hasSelection = state.selectedIds.isNotEmpty()
+                    TextButton(
+                        onClick = { viewModel.batchFavorite() },
+                        enabled = hasSelection
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Star,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(s.galleryBatchFavorite)
+                    }
+                    TextButton(
+                        onClick = { viewModel.requestBatchDelete() },
+                        enabled = hasSelection
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.DeleteOutline,
+                            contentDescription = null,
+                            tint = if (hasSelection) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            },
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = s.galleryBatchDelete,
+                            color = if (hasSelection) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             }
-                        }
+                        )
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun HeaderIconCircleButton(
+    icon: ImageVector,
+    contentDescription: String?,
+    onClick: () -> Unit,
+    active: Boolean = false
+) {
+    val containerColor = if (active) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerLow
+    }
+    val tint = if (active) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    val border = if (active) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+    } else {
+        MaterialTheme.studioColors.hairline
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = containerColor,
+        border = BorderStroke(1.dp, border),
+        modifier = Modifier.size(36.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SortModeOptionItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    DropdownMenuItem(
+        text = {
+            Text(
+                text = label,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+        },
+        trailingIcon = if (selected) {
+            {
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        } else {
+            null
+        },
+        onClick = onClick
+    )
 }

@@ -228,6 +228,14 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(PreferenceKeys.KEY_LANGUAGE, LANGUAGE_SYSTEM) ?: LANGUAGE_SYSTEM
         set(value) = prefs.edit { putString(PreferenceKeys.KEY_LANGUAGE, value) }
 
+    var themeMode: String
+        get() = prefs.getString(PreferenceKeys.KEY_THEME_MODE, THEME_SYSTEM) ?: THEME_SYSTEM
+        set(value) = prefs.edit { putString(PreferenceKeys.KEY_THEME_MODE, value) }
+
+    var dynamicColor: Boolean
+        get() = prefs.getString(PreferenceKeys.KEY_DYNAMIC_COLOR, "false") == "true"
+        set(value) = prefs.edit { putString(PreferenceKeys.KEY_DYNAMIC_COLOR, value.toString()) }
+
     var disabledGenerationModels: Set<String>
         get() = disabledGenerationModels(providerId)
         set(value) = setDisabledGenerationModels(providerId, value)
@@ -282,6 +290,8 @@ class PreferencesManager(context: Context) {
             PreferenceKeys.KEY_DEFAULT_MODEL to defaultModel(currentProvider),
             PreferenceKeys.KEY_DEFAULT_SIZE to defaultSize(currentProvider),
             PreferenceKeys.KEY_LANGUAGE to language,
+            PreferenceKeys.KEY_THEME_MODE to themeMode,
+            PreferenceKeys.KEY_DYNAMIC_COLOR to dynamicColor.toString(),
             PreferenceKeys.KEY_DISABLED_GEN_MODELS to
                 PreferenceKeys.joinModels(disabledGenerationModels(currentProvider)),
             PreferenceKeys.KEY_DISABLED_EDIT_MODELS to
@@ -322,5 +332,8 @@ class PreferencesManager(context: Context) {
         const val LANGUAGE_SYSTEM = "system"
         const val LANGUAGE_ZH = "zh"
         const val LANGUAGE_EN = "en"
+        const val THEME_SYSTEM = "system"
+        const val THEME_LIGHT = "light"
+        const val THEME_DARK = "dark"
     }
 }
